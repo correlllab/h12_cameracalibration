@@ -1,31 +1,15 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
-from custom_ros_messages.srv import Query, UpdateTrackedObject, UpdateBeliefs, ResetBeliefs
 from custom_ros_messages.action import DualArm
-from geometry_msgs.msg import Pose
-from std_msgs.msg import Float64MultiArray
 from scipy.spatial.transform import Rotation as R
 import time
-from unitree_go.msg import MotorCmds, MotorCmd
-from visualization_msgs.msg import Marker
-from sensor_msgs.msg import PointCloud2
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 import numpy as np
 from tf2_ros import Buffer, TransformListener, LookupException, ConnectivityException, ExtrapolationException
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 import threading
-
-
-
-def pose_to_matrix(pose_array):
-    x, y, z, roll, pitch, yaw = pose_array
-    r = R.from_euler('xyz', [roll, pitch, yaw], degrees=True)
-    matrix = np.eye(4)
-    matrix[:3, :3] = r.as_matrix()
-    matrix[:3, 3] = [x, y, z]
-    return matrix
 
 class ControllerNode(Node):
     def __init__(self):
@@ -37,43 +21,28 @@ class ControllerNode(Node):
             'move_dual_arm'
         )
         lM = np.eye(4)
-        lM[:3, 3] = [0.3, 0.5, 0.2]
+        lM[:3, 3] = [0.3, 0.3, 0.2]
         rM = np.eye(4)
-        rM[:3, 3] = [0.3, -0.5, 0.2]
+        rM[:3, 3] = [0.3, -0.3, 0.2]
         self.r_arm_mat = rM
         self.l_arm_mat = lM
-        self.marker_pub = self.create_publisher(Marker, "/camera_marker", 10)
-
-        self.hand_pub = self.create_publisher(MotorCmds, '/inspire/cmd', 10)
-        self.hand_length = 0.3
         
         self.l_hand = None
         self.r_hand = None
 
-        PC_QOS = QoSProfile(
-            reliability=QoSReliabilityPolicy.BEST_EFFORT,
-            history=QoSHistoryPolicy.KEEP_LAST,
-            depth=10
-        )
-        self.pointcloud_pub = self.create_publisher(PointCloud2, "/experiment_pointcloud", PC_QOS)
-
-
 
         self._tf_cb_group = ReentrantCallbackGroup()
         self.tf_buffer = Buffer()
-        self.tf_node = Node('tf_helper', callback_group=self._tf_cb_group)
-        self.tf_listener = TransformListener(self.tf_buffer, self.tf_node, callback_group=self._tf_cb_group)
+        self.tf_node = Node('tf_helper')
+        self.tf_listener = TransformListener(self.tf_buffer, self.tf_node)
 
         self._tf_executor = SingleThreadedExecutor()
         self._tf_executor.add_node(self.tf_node)
         self._tf_thread = threading.Thread(target=self._tf_executor.spin, daemon=True)
+        print("Starting TF thread")
         self._tf_thread.start()
-
+        print("TF thread started")
         self.go_home()
-        self.open_hands()
-        time.sleep(1)
-        self.close_hands()
-        time.sleep(1)
 
 
     def get_tf(self, source_frame: str, target_frame: str, timeout: float = 1.0):
@@ -114,62 +83,9 @@ class ControllerNode(Node):
                 last_exc = e
                 time.sleep(0.02)  # brief backoff
 
-        raise RuntimeError(f"TF {source_frame} -> {target_frame} not available within {timeout:.2f}s: {last_exc}")
+        #raise RuntimeError(f"TF {source_frame} -> {target_frame} not available within {timeout:.2f}s: {last_exc}")
+        return None
 
-
-    def publish_marker(self, x,y,z):
-        marker = Marker()
-
-        marker.header.frame_id = "pelvis"
-        marker.ns = "behavior marker"
-
-        marker.type = Marker.DELETEALL
-        self.marker_pub.publish(marker)
-
-
-
-        marker.type = Marker.SPHERE
-        marker.pose.position.x = x
-        marker.pose.position.y = y
-        marker.pose.position.z = z
-        marker.pose.orientation.w = 1.0
-
-        marker.scale.x = 0.05
-        marker.scale.y = 0.05
-        marker.scale.z = 0.05
-
-        marker.color.r = 0.0
-        marker.color.g = 0.0
-        marker.color.b = 1.0
-        marker.color.a = 1.0
-
-        self.marker_pub.publish(marker)
-
-
-    def set_hands(self, l_goal=None, r_goal=None):
-        if l_goal is not None:
-            self.l_hand = l_goal
-        if r_goal is not None:
-            self.r_hand = r_goal
-
-        msg = MotorCmds()
-        msg.cmds = [MotorCmd(mode=1, q=0.0, dq=0.0, tau=0.0, kp=0.0, kd=0.0) for i in range(12)]
-        for i, (l_q, r_q) in enumerate(zip(self.l_hand, self.r_hand)):
-            msg.cmds[i].q = r_q
-            msg.cmds[6+i].q = l_q
-
-        self.hand_pub.publish(msg)
-
-    def open_hands(self):
-        l_hand = [1.0]*6
-        r_hand = [1.0]*6
-        self.set_hands(l_goal = l_hand, r_goal = r_hand)
-    def close_hands(self):
-        l_hand = [0.0]*6
-        l_hand[5] = 1.0
-        r_hand = [0.0]*6
-        r_hand[5] = 1.0
-        self.set_hands(l_goal = l_hand, r_goal = r_hand)
 
     def go_home(self, duration=10):
         goal_msg = DualArm.Goal()
@@ -243,8 +159,8 @@ class ControllerNode(Node):
     def feedback_callback(self, feedback_msg):
         feedback = feedback_msg.feedback
         # print(f'\rLeft Error Linear: {feedback.left_error_linear:.2f} Angular: {feedback.left_error_angular:.2f}; Right Error Linear: {feedback.right_error_linear:.2f} Angular: {feedback.right_error_linear:.2f} T:{time.time()- self.start_time:.2f}', end="", flush=True)
-        # print(f'\rLeft Error Linear: {feedback.left_error_linear:.2f} Angular: {feedback.left_error_angular:.2f}; T:{time.time()- self.start_time:.2f}', end="", flush=True)
-        print(f'\rRight Error Linear: {feedback.right_error_linear:.2f} Angular: {feedback.right_error_linear:.2f} T:{time.time()- self.start_time:.2f}', end="", flush=True)
+        print(f'\rLeft Error Linear: {feedback.left_error_linear:.2f} Angular: {feedback.left_error_angular:.2f}; T:{time.time()- self.start_time:.2f}', end="", flush=True)
+        # print(f'\rRight Error Linear: {feedback.right_error_linear:.2f} Angular: {feedback.right_error_linear:.2f} T:{time.time()- self.start_time:.2f}', end="", flush=True)
 
     def close(self):
         self.destroy_node()

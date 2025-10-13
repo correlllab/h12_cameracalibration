@@ -8,9 +8,9 @@ import random
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 # -------------------- HARDCODED CONFIG --------------------
-DATA_DIR = "/ros2_ws/src/vision_pipeline/vision_pipeline/figures/hand_in_eye_calibration"
+DATA_DIR = "/ros2_ws/src/h12_cameracalibration/h12_cameracalibration/data/handineye_calibration/npzs"
 assert os.path.exists(DATA_DIR), f"Data dir not found: {DATA_DIR}"
-INTRINSICS_PATH = "/ros2_ws/src/vision_pipeline/vision_pipeline/figures/hand_in_eye_calibration/intrinsics.npz"
+INTRINSICS_PATH = "/ros2_ws/src/h12_cameracalibration/h12_cameracalibration/data/handineye_calibration/intrinsics.npz"
 assert os.path.exists(INTRINSICS_PATH), f"Intrinsics file not found: {INTRINSICS_PATH}"
 
 INNER_CORNERS = (10, 7)      # (cols, rows)
@@ -147,8 +147,6 @@ def _set_axes_equal(ax, points):
     ax.set_xlim(center[0] - radius/2, center[0] + radius/2)
     ax.set_ylim(center[1] - radius/2, center[1] + radius/2)
     ax.set_zlim(center[2] - radius/2, center[2] + radius/2)
-
-
 
 # ----------------------- Data-specific loaders -----------------------
 def load_intrinsics_npz(path: str):

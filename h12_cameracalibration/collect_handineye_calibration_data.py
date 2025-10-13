@@ -81,6 +81,7 @@ def get_corners(rgb):
 
 
 ready_to_save = False
+reverse_corners = False
 def vis_and_save(camera_node, controller_node, intrinsic_path, intrinsics_made):
     i = 0
     global ready_to_save
@@ -92,16 +93,19 @@ def vis_and_save(camera_node, controller_node, intrinsic_path, intrinsics_made):
             print(f"Saved intrinsics to {intrinsic_path}")
             intrinsics_made = True
         transform = controller_node.get_tf(source_frame="left_wrist_yaw_link", target_frame="pelvis", timeout=1.0)
-        if rgb is not None and transform is not None:
+        if rgb is not None:
             h, w, _ = rgb.shape
             display_img = rgb.copy()
             d_T = np.linalg.norm(transform - last_t).mean()
-            last_t = transform
+            
             cv2.putText(display_img, f"{d_T:0.4f}",
                         (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0,255,0), 1)
+            
+            if transform is not None:
+                last_t = transform
 
             success, corners = get_corners(rgb)
-            if success:
+            if success and transform is not None:
                 cv2.drawChessboardCorners(display_img, TARGET_DIMS, corners, success)
                 stamp = f"{i=}"
                 lin_diff = 0
@@ -231,9 +235,8 @@ def main():
     print("camera initialized")
 
 
-    target_location = [-0.4, 1.1, 0.3]
+    target_location = [0.1, 0.85, 0.2]
     target = np.array(target_location, dtype=float)
-
     configs = [
         #straight y
         [0, 0.1, 0, 0],
