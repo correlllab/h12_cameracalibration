@@ -120,6 +120,8 @@ def vis_and_save(camera_node, controller_node, intrinsic_path, intrinsics_made):
                     print(f"Saved calib_{stamp}.png and calib_{stamp}.npz" )
                     i+=1
                     ready_to_save = False
+
+            display_img = cv2.resize(display_img, (640, 480), interpolation = cv2.INTER_AREA)
             cv2.imshow("rgb", display_img)
 
         # quit on ESC
