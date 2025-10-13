@@ -7,7 +7,7 @@ import cv2
 file_dir = os.path.dirname(os.path.realpath(__file__))
 data_dir = os.path.join(file_dir, 'data')
 os.makedirs(data_dir, exist_ok=True)
-save_dir = os.path.join(data_dir, 'handineye_calibration')
+save_dir = os.path.join(data_dir, 'handtoeye_calibration')
 
 
 input(f"press anything to delete {save_dir} and continue")
@@ -97,7 +97,7 @@ def vis_and_save(camera_node, controller_node, intrinsic_path, intrinsics_made):
             save_camera_info(info, intrinsic_path)
             print(f"Saved intrinsics to {intrinsic_path}")
             intrinsics_made = True
-        transform = controller_node.get_tf(source_frame="left_wrist_yaw_link", target_frame="pelvis", timeout=1.0)
+        transform = controller_node.get_tf(source_frame="right_wrist_yaw_link", target_frame="pelvis", timeout=1.0)
         if rgb is not None:
             h, w, _ = rgb.shape
             display_img = rgb.copy()
@@ -136,11 +136,12 @@ def vis_and_save(camera_node, controller_node, intrinsic_path, intrinsics_made):
             
     cv2.destroyAllWindows()
 
-def get_lookat_matrix(x,y,z,roll, target):
+def get_pose_matrix(x,y,z,roll,target):
+    roll += 180
     pos = np.array([x, y, z], dtype=float)
     dir_vec = target - pos
     norm = np.linalg.norm(dir_vec)
-    x_axis = dir_vec / norm
+    x_axis = -1 * (dir_vec / norm)
 
     up = np.array([0.0, 0.0, 1.0])
     if abs(np.dot(up, x_axis)) > 0.99:
@@ -171,7 +172,7 @@ def collect(x,y,z,roll,target, controller_node):
     global ready_to_save
     global reverse_corners
     while not saved:
-        T = get_lookat_matrix(x, y, z, roll, target)
+        T = get_pose_matrix(x, y, z, roll, target)
         # behavior_node.go_home(duration=5)
         print(f"\n\nMoving to x={x}, y={y}, z={z}, roll={roll}")
         print(f"Target: {target}")
@@ -232,7 +233,7 @@ def collect(x,y,z,roll,target, controller_node):
 
 def main():
     controller_node = ControllerNode()
-    camera_node = CameraSubscriber("/realsense/left_hand")
+    camera_node = CameraSubscriber("/realsense/head")
     intrinsic_path = os.path.join(save_dir, "intrinsics.npz")
     intrinsics_made = os.path.exists(intrinsic_path)
     vis_thread = threading.Thread(target=vis_and_save, args=(camera_node, controller_node, intrinsic_path, intrinsics_made))
@@ -242,126 +243,54 @@ def main():
     print("camera initialized")
 
 
-    target_location = [0.1, 0.85, 0.2]
+    target_location = [0.111, 0.2, 0.68]
     target = np.array(target_location, dtype=float)
+    min_y = -0.3
+    max_y = 0.4
+    min_z = 0.0
+    max_z = 0.3
     configs = [
-        #straight y
-        [0, 0.1, 0, 0],
-        [0, 0.3, 0, 0],
-        [0, 0.6, 0, 0],
+        [0.5, 0.0, 0.0, 0, 0, 0],
+        [0.5, max_y, 0.0, 0, 0, 0],
+        [0.5, min_y, 0.0, 0, 0, 0],
+        [0.5, 0.0, max_z, 0, 0, 0],
+        [0.5, 0.0, min_z, 0, 0, 0],
 
-        #y at x extreme
-        [0.3, 0.1, 0, 0],
-        [0.3, 0.3, 0, 0],
-        [0.3, 0.6, 0, 0],
-        
-        #y at -x extreme
-        [-0.3, 0.1, 0, 0],
-        [-0.3, 0.3, 0, 0],
-        [-0.3, 0.6, 0, 0],
-        
-        #y at z extreme
-        [0.0, 0.1, 0.3, 0],
-        [0.0, 0.3, 0.3, 0],
-        [0.0, 0.6, 0.3, 0],
-       
-        #y at -z extreme
-        [0.0, 0.1, -0.3, 0],
-        [0.0, 0.3, -0.3, 0],
-        [0.0, 0.6, -0.3, 0],
+        [0.5, 0.0, 0.0, 45, 0, 0],
+        [0.5, max_y, 0.0, 45, 0, 0],
+        [0.5, min_y, 0.0, 45, 0, 0],
+        [0.5, 0.0, max_z, 45, 0, 0],
+        [0.5, 0.0, min_z, 45, 0, 0],
 
-        #y at x and z extreme
-        [0.3, 0.1, 0.3, 0],
-        [0.3, 0.3, 0.3, 0],
-        [0.3, 0.6, 0.3, 0],
-
-        #y at -x and -z extreme
-        [-0.3, 0.1, -0.3, 0],
-        [-0.3, 0.3, -0.3, 0],
-        [-0.3, 0.6, -0.3, 0],
-
-        #y at x and -z extreme
-        [0.3, 0.1, -0.3, 0],
-        [0.3, 0.3, -0.3, 0],
-        [0.3, 0.6, -0.3, 0],
-
-        #y at -x and z extreme
-        [-0.3, 0.1, 0.3, 0],
-        [-0.3, 0.3, 0.3, 0],
-        [-0.3, 0.6, 0.3, 0],
+        [0.5, 0.0, 0.0, -45, 0, 0],
+        [0.5, max_y, 0.0, -45, 0, 0],
+        [0.5, min_y, 0.0, -45, 0, 0],
+        [0.5, 0.0, max_z, -45, 0, 0],
+        [0.5, 0.0, min_z, -45, 0, 0],
 
 
-        #y at 45 roll
-        [0, 0.1, 0, 45],
-        [0, 0.3, 0, 45],
-        [0, 0.6, 0, 45],
+        [0.5, max_y, 0.0, 0, -0.25, 0],
+        [0.5, min_y+0.1, 0.0, 0, 0.25, 0],
+        [0.5, 0.0, max_z, 0, 0, -0.25],
+        [0.5, 0.0, min_z, 0, 0, 0.25],
 
-        #y at -45 roll
-        [0, 0.1, 0, -45],
-        [0, 0.3, 0, -45],
-        [0, 0.6, 0, -45],
+        [0.5, max_y, 0.0, 45, -0.25, 0],
+        [0.5, min_y+0.2, 0.0, -15, 0.25, 0],
+        [0.5, 0.0, max_z, 45, 0, -0.25],
+        [0.5, 0.0, min_z, 45, 0, 0.25],
 
-        #y at roll and -x extremes
-        [-0.3, 0.1, 0, 45],
-        [-0.3, 0.3, 0, 67],
-        [-0.3, 0.5, 0, 90],
+        [0.5, max_y, 0.0, -45, -0.25, 0],
+        [0.5, min_y, 0.0, -45, 0.25, 0],
+        [0.5, 0.0, max_z, -45, 0, -0.25],
+        [0.5, 0.0, min_z, -45, 0, 0.25],
 
-        #y at roll and x extremes
-        [0.3, 0.1, 0, -45],
-        [0.3, 0.3, 0, -67],
-        [0.3, 0.5, 0, -90],
-
-        # below is from gpt
-        # --- Elevated (top-down-ish), mid-range
-        [ 0.35, 0.30,  0.35,   0],
-        [-0.35, 0.30,  0.35,   0],
-        [ 0.35, 0.50,  0.35,  45],
-        [-0.35, 0.50,  0.35,  45],
-
-        # --- Low (bottom-up-ish), mid-range
-        [ 0.35, 0.30, -0.35,   0],
-        [-0.35, 0.30, -0.35,   0],
-        [ 0.35, 0.50, -0.35,  45],
-        [-0.35, 0.50, -0.35, -45],
-
-        # --- Oblique diagonals (x and z both nonzero), mid-range
-        [ 0.25, 0.40,  0.25,  30],
-        [-0.25, 0.40,  0.25, -30],
-        [ 0.25, 0.40, -0.25, -30],
-        [-0.25, 0.40, -0.25,  30],
-
-        # --- Farther range to excite intrinsics/distortion
-        [ 0.20, 0.80,  0.20,   0],
-        [-0.20, 0.80,  0.20,   0],
-        [ 0.20, 0.80, -0.20,  60],
-        [-0.20, 0.80, -0.20, -60],
-
-        # --- Closer range (near), gentle elevation
-        [ 0.15, 0.05,  0.15,   0],
-        [-0.15, 0.05,  0.15,   0],
-        [ 0.15, 0.05, -0.15,  90],
-        [-0.15, 0.05, -0.15, -90],
-
-        # --- Symmetric side sweeps, small elevation, multiple rolls
-        [ 0.40, 0.20,  0.10,   0],
-        [ 0.40, 0.20,  0.10,  45],
-        [-0.40, 0.20,  0.10,   0],
-        [-0.40, 0.20,  0.10, -45],
-
-        # --- Higher elevation, stronger roll variety
-        [ 0.00, 0.45,  0.45,   0],
-        [ 0.00, 0.45,  0.45,  67],
-        [ 0.00, 0.45,  0.45, -67],
-
-        # --- Lower elevation, stronger roll variety
-        [ 0.00, 0.45, -0.45,   0],
-        [ 0.00, 0.45, -0.45,  67],
-        [ 0.00, 0.45, -0.45, -67],
     ]
-    for i, (x, y, z, roll) in enumerate(configs):
+    for i, (x, y, z, roll, target_y_offset, target_z_offset) in enumerate(configs):
         print(f"\n\n{i+1}/{len(configs)} New position: x={x}, y={y}, z={z}, roll={roll}")
-
-        collect(x,y,z,roll,target, controller_node)
+        instance_target = target_location.copy()
+        instance_target[1] += target_y_offset
+        instance_target[2] += target_z_offset
+        collect(x, y, z, roll, instance_target, controller_node)
     print(f"\n\nAll done! Returning home")
     controller_node.go_home(duration=10)
     exit(0)

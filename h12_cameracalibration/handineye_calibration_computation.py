@@ -255,7 +255,7 @@ def get_error(
     # ---Mean target->base pose as the reference ---
     R_list = [T[:3, :3] for T in T_target2base]
     t_stack = np.stack([T[:3, 3] for T in T_target2base], axis=0)
-    visualize_r_t(R_list, t_stack, axis_len=0.005, title="Base->Target Poses")
+    # visualize_r_t(R_list, t_stack, axis_len=0.005, title="Base->Target Poses")
     t_ref = t_stack.mean(axis=0)
 
     R_ref = SciRot.from_matrix(np.stack(R_list)).mean().as_matrix()
@@ -340,41 +340,73 @@ def main():
     # visualize_r_t(R_gripper2base, t_gripper2base, axis_len=0.05, title="Gripper->Base Poses")
     # visualize_r_t(R_target2cam, t_target2cam, axis_len=0.05, title="Target->Camera Poses")
     # plt.show()
+    best_T = np.eye(4)
+    best_error = float('inf')
+    ransac_iters = 1000
+    sample_n = 7
+    for i in range(ransac_iters):
+
+        sample_idxs = random.sample(range(len(R_gripper2base)), sample_n)
+        R_gripper2base_sample = [R_gripper2base[i] for i in sample_idxs]
+        t_gripper2base_sample = [t_gripper2base[i] for i in sample_idxs]
+        R_target2cam_sample = [R_target2cam[i] for i in sample_idxs]
+        t_target2cam_sample = [t_target2cam[i] for i in sample_idxs]
+
+        R_cam2gripper, t_cam2gripper = cv2.calibrateHandEye(
+            R_gripper2base_sample, t_gripper2base_sample,  # lists of absolutes are expected here
+            R_target2cam_sample,  t_target2cam_sample,
+            method=HAND_EYE_METHODS["TSAI"]
+        )
+        T_cam2gripper = np.eye(4)
+        T_cam2gripper[:3, :3] = R_cam2gripper
+        T_cam2gripper[:3, 3] = t_cam2gripper.flatten()
+
+        error_mm = get_error(
+            R_gripper2base, t_gripper2base,
+            R_target2cam,  t_target2cam,
+            R_cam2gripper, t_cam2gripper,
+            corners_arr, K, D
+        )
+        # print(f"{i}: {error_mm=:.3f} mm RMS")
+        # print("\n\n")
+
+        if error_mm < best_error:
+            best_error = error_mm
+            best_T = T_cam2gripper.copy()
+
+    print(f"[RESULT] Best reprojection error: {best_error:.3f} mm RMS")
 
 
-    R_cam2gripper, t_cam2gripper = cv2.calibrateHandEye(
-        R_gripper2base, t_gripper2base,  # lists of absolutes are expected here
-        R_target2cam,  t_target2cam,
-        method=HAND_EYE_METHODS["TSAI"]
-    )
-    T_cam2gripper = np.eye(4)
-    T_cam2gripper[:3, :3] = R_cam2gripper
-    T_cam2gripper[:3, 3] = t_cam2gripper.flatten()
+    T_gripper2base = [stack_T(R, t) for R, t in zip(R_gripper2base, t_gripper2base)]
+    T_target2camera = [stack_T(R, t) for R, t in zip(R_target2cam, t_target2cam)]
+    T_camera2gripper = best_T
+    T_target2base = [T_g2b @ T_camera2gripper @ T_t2c for T_g2b, T_t2c in zip(T_gripper2base, T_target2camera)]
+    R_list = [T[:3, :3] for T in T_target2base]
+    t_stack = np.stack([T[:3, 3] for T in T_target2base], axis=0)
+    visualize_r_t(R_list, t_stack, axis_len=0.005, title="Base->Target Poses")
 
-    error_mm = get_error(
-        R_gripper2base, t_gripper2base,
-        R_target2cam,  t_target2cam,
-        R_cam2gripper, t_cam2gripper,
-        corners_arr, K, D
-    )
-    print(f"TSAI")
-    print(f"{error_mm=:.3f} mm RMS")
-    print("\n\n")
 
-    # Extract
-    R = R_cam2gripper.copy()
-    t = t_cam2gripper.copy()
+    T_camOpt2gripper = best_T.copy()
 
-    # Define the basis change for the CAMERA frame (old c -> new c')
-    R_y_90 = SciRot.from_euler('y',  90, degrees=True).as_matrix()
-    R_x_90 = SciRot.from_euler('x',  -90, degrees=True).as_matrix()
-    C_c = R_x_90 @ R_y_90
-    # Re-express cam->gripper in the new camera convention:
-    R = R @ C_c.T     # right-multiply by C_c^T (source frame change)
-    t = t             # translation unchanged for camera-frame change
+    # ROS camera_link  -> optical frame (OpenCV) rotation
+    R_opt_from_ros = np.array([[0, -1,  0],
+                            [0,  0, -1],
+                            [1,  0,  0]], dtype=float)
+    
+    T_ros2opt = np.eye(4)
+    T_ros2opt[:3, :3] = R_opt_from_ros
+
+    T_camRos2gripper = T_camOpt2gripper @ T_ros2opt
+
+
+
+    R_ros2 = T_camRos2gripper[:3, :3]
+    t_ros2 = T_camRos2gripper[:3,  3]
+
+
     # Output values
-    x, y, z = t.flatten().tolist()
-    qx, qy, qz, qw = SciRot.from_matrix(R).as_quat()  # xyzw
+    x, y, z = t_ros2.flatten().tolist()
+    qx, qy, qz, qw = SciRot.from_matrix(R_ros2).as_quat()  # xyzw
     print(f"{x=:.6f}, {y=:.6f}, {z=:.6f}")
     print(f"{qx=}, {qy=}, {qz=}, {qw=}")
 
