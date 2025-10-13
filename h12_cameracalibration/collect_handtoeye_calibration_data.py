@@ -176,7 +176,7 @@ def collect(x,y,z,roll,target, controller_node):
         # behavior_node.go_home(duration=5)
         print(f"\n\nMoving to x={x}, y={y}, z={z}, roll={roll}")
         print(f"Target: {target}")
-        controller_node.send_arm_goal(left_mat=T, duration=5)
+        controller_node.send_arm_goal(right_mat=T, duration=5)
     
         cmd = input("Enter x y z r or dx dy dz dr or 'q' to quit, r to reverse the corner ordering, s to save, h for home, k to skip, tx, ty,tz to move the target point: ")
         if cmd.strip().lower() in ['q', 'quit', 'exit']:
@@ -249,6 +249,8 @@ def main():
     max_y = 0.4
     min_z = 0.0
     max_z = 0.3
+    target_dy = 0.3
+    target_dz = 0.3
     configs = [
         [0.5, 0.0, 0.0, 0, 0, 0],
         [0.5, max_y, 0.0, 0, 0, 0],
@@ -269,20 +271,20 @@ def main():
         [0.5, 0.0, min_z, -45, 0, 0],
 
 
-        [0.5, max_y, 0.0, 0, -0.25, 0],
-        [0.5, min_y+0.1, 0.0, 0, 0.25, 0],
-        [0.5, 0.0, max_z, 0, 0, -0.25],
-        [0.5, 0.0, min_z, 0, 0, 0.25],
+        [0.5, max_y, 0.0, 0, -1*target_dy, 0],
+        [0.5, min_y+0.1, 0.0, 0, target_dy, 0],
+        [0.5, 0.0, max_z, 0, 0, -1*target_dz],
+        [0.5, 0.0, min_z, 0, 0, target_dz],
 
-        [0.5, max_y, 0.0, 45, -0.25, 0],
-        [0.5, min_y+0.2, 0.0, -15, 0.25, 0],
-        [0.5, 0.0, max_z, 45, 0, -0.25],
-        [0.5, 0.0, min_z, 45, 0, 0.25],
+        [0.5, max_y, 0.0, 45, -1*target_dy, 0],
+        [0.5, min_y+0.2, 0.0, -15, target_dy, 0],
+        [0.5, 0.0, max_z, 45, 0, -1*target_dz],
+        [0.5, 0.0, min_z, 45, 0, target_dz],
 
-        [0.5, max_y, 0.0, -45, -0.25, 0],
-        [0.5, min_y, 0.0, -45, 0.25, 0],
-        [0.5, 0.0, max_z, -45, 0, -0.25],
-        [0.5, 0.0, min_z, -45, 0, 0.25],
+        [0.5, max_y, 0.0, -45, -1*target_dy, 0],
+        [0.5, min_y, 0.0, -45, target_dy, 0],
+        [0.5, 0.0, max_z, -45, 0, -1*target_dz],
+        [0.5, 0.0, min_z, -45, 0, target_dz],
 
     ]
     for i, (x, y, z, roll, target_y_offset, target_z_offset) in enumerate(configs):
