@@ -20,6 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'collect_handineye_calib = h12_cameracalibration.collect_handineye_calibration_data:main',
         ],
     },
 )
