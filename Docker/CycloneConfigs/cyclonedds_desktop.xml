@@ -1,0 +1,40 @@
+<CycloneDDS>
+  <Domain id="0">
+
+    <General>
+      <Interfaces>
+        <NetworkInterface name="enp4s0" priority="default" multicast="default"/>
+        <!--<NetworkInterface name="wlp5s0" priority="default" multicast="default"/>-->
+
+      </Interfaces>
+
+      <MaxMessageSize>65507B</MaxMessageSize>          <!-- Explicit unit: bytes -->
+      <FragmentSize>1472B</FragmentSize>               <!-- Explicit unit: bytes -->
+      <AllowMulticast>true</AllowMulticast>
+      <EnableMulticastLoopback>true</EnableMulticastLoopback>
+      <DontRoute>true</DontRoute>
+    </General>
+
+    <Discovery>
+      <Peers>
+        <Peer address="192.168.123.164"/>  <!-- robot IP -->
+        <Peer address="192.168.123.18"/>   <!-- operator desktop IP -->
+      </Peers>
+      <LeaseDuration>10s</LeaseDuration>
+    </Discovery>
+
+    <Internal>
+      <HeartbeatInterval min="5ms" max="20ms" minsched="5ms"/>
+      <NackDelay>2ms</NackDelay>
+      <PreEmptiveAckDelay>2ms</PreEmptiveAckDelay>
+      <MultipleReceiveThreads>true</MultipleReceiveThreads>
+      <SocketReceiveBufferSize min="10MB"/>
+      <Watermarks><WhcHigh>500kB</WhcHigh></Watermarks>
+    </Internal>
+
+    <Tracing>
+      <Verbosity>warning</Verbosity>
+    </Tracing>
+
+  </Domain>
+</CycloneDDS>

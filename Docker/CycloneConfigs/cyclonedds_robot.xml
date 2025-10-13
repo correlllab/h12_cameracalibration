@@ -1,0 +1,43 @@
+<CycloneDDS>
+  <Domain id="0">
+
+    <General>
+      <Interfaces>
+        <NetworkInterface name="eth0" priority="default" multicast="default"/>
+      </Interfaces>
+
+      <MaxMessageSize>65507B</MaxMessageSize>          <!-- Max UDP packet size with explicit unit -->
+      <FragmentSize>1472B</FragmentSize>               <!-- Fragmentation size -->
+      <AllowMulticast>true</AllowMulticast>
+      <EnableMulticastLoopback>true</EnableMulticastLoopback>
+      <DontRoute>true</DontRoute>
+    </General>
+
+    <Discovery>
+      <Peers>
+        <Peer address="192.168.123.18"/>  <!-- Operator desktop IP -->
+        <Peer address="192.168.123.6"/>   <!-- Max Desktop IP -->
+      </Peers>
+      <LeaseDuration>10s</LeaseDuration>
+    </Discovery>
+
+    <Internal>
+      <HeartbeatInterval min="5ms" max="20ms" minsched="5ms"/>
+      <NackDelay>2ms</NackDelay>
+      <PreEmptiveAckDelay>2ms</PreEmptiveAckDelay>
+      <MultipleReceiveThreads>true</MultipleReceiveThreads>
+      <SocketReceiveBufferSize min="10MB"/>
+      <Watermarks><WhcHigh>500kB</WhcHigh></Watermarks>
+    </Internal>
+
+    <Tracing>
+      <Verbosity>warning</Verbosity>
+      <!-- Uncomment to enable debug logging -->
+      <!-- <OutputFile>/tmp/cyclonedds.log</OutputFile> -->
+    </Tracing>
+
+
+    
+
+  </Domain>
+</CycloneDDS>
