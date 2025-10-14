@@ -1,3 +1,4 @@
+import itertools
 import time
 import shutil
 import numpy as np
@@ -87,27 +88,37 @@ def get_corners(rgb):
 
 ready_to_save = False
 reverse_corners = False
-def vis_and_save(camera_node, controller_node, intrinsic_path, intrinsics_made):
+def vis_and_save(camera_node, controller_node, intrinsic_path, extrinsics_path):
     i = 0
     global ready_to_save
     last_t = np.eye(4)
+    intrinsics_made = False
+    extrinsics_made = False
     while True:
         rgb, info, = camera_node.get_data()
         if not intrinsics_made and info is not None:
             save_camera_info(info, intrinsic_path)
             print(f"Saved intrinsics to {intrinsic_path}")
             intrinsics_made = True
+        if not extrinsics_made:
+            T = controller_node.get_tf(source_frame="head_link", target_frame="head_color_optical_frame", timeout=1.0)
+            if T is not None:
+                np.savez(extrinsics_path, cam2optical=T)
+                extrinsics_made = True
         transform = controller_node.get_tf(source_frame="right_wrist_yaw_link", target_frame="pelvis", timeout=1.0)
         if rgb is not None:
             h, w, _ = rgb.shape
             display_img = rgb.copy()
-            d_T = np.linalg.norm(transform - last_t).mean()
-            
+            d_T = float('inf')
+        
+            if transform is not None:
+                d_T = np.linalg.norm(transform - last_t).mean()
+                last_t = transform
+
             cv2.putText(display_img, f"{d_T:0.4f}",
                         (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0,255,0), 1)
             
-            if transform is not None:
-                last_t = transform
+
 
             success, corners = get_corners(rgb)
             if success and transform is not None:
@@ -235,64 +246,40 @@ def main():
     controller_node = ControllerNode()
     camera_node = CameraSubscriber("/realsense/head")
     intrinsic_path = os.path.join(save_dir, "intrinsics.npz")
-    intrinsics_made = os.path.exists(intrinsic_path)
-    vis_thread = threading.Thread(target=vis_and_save, args=(camera_node, controller_node, intrinsic_path, intrinsics_made))
+    extrinsics_path = os.path.join(save_dir, "extrinsics.npz")
+    vis_thread = threading.Thread(target=vis_and_save, args=(camera_node, controller_node, intrinsic_path, extrinsics_path))
     vis_thread.start()
     time.sleep(1)
     print()
     print("camera initialized")
 
 
-    target_location = [0.111, 0.2, 0.68]
-    target = np.array(target_location, dtype=float)
-    min_y = -0.3
-    max_y = 0.4
-    min_z = 0.0
-    max_z = 0.3
-    target_dy = 0.3
-    target_dz = 0.3
-    configs = [
-        [0.5, 0.0, 0.0, 0, 0, 0],
-        [0.5, max_y, 0.0, 0, 0, 0],
-        [0.5, min_y, 0.0, 0, 0, 0],
-        [0.5, 0.0, max_z, 0, 0, 0],
-        [0.5, 0.0, min_z, 0, 0, 0],
-
-        [0.5, 0.0, 0.0, 45, 0, 0],
-        [0.5, max_y, 0.0, 45, 0, 0],
-        [0.5, min_y, 0.0, 45, 0, 0],
-        [0.5, 0.0, max_z, 45, 0, 0],
-        [0.5, 0.0, min_z, 45, 0, 0],
-
-        [0.5, 0.0, 0.0, -45, 0, 0],
-        [0.5, max_y, 0.0, -45, 0, 0],
-        [0.5, min_y, 0.0, -45, 0, 0],
-        [0.5, 0.0, max_z, -45, 0, 0],
-        [0.5, 0.0, min_z, -45, 0, 0],
-
-
-        [0.5, max_y, 0.0, 0, -1*target_dy, 0],
-        [0.5, min_y+0.1, 0.0, 0, target_dy, 0],
-        [0.5, 0.0, max_z, 0, 0, -1*target_dz],
-        [0.5, 0.0, min_z, 0, 0, target_dz],
-
-        [0.5, max_y, 0.0, 45, -1*target_dy, 0],
-        [0.5, min_y+0.2, 0.0, -15, target_dy, 0],
-        [0.5, 0.0, max_z, 45, 0, -1*target_dz],
-        [0.5, 0.0, min_z, 45, 0, target_dz],
-
-        [0.5, max_y, 0.0, -45, -1*target_dy, 0],
-        [0.5, min_y, 0.0, -45, target_dy, 0],
-        [0.5, 0.0, max_z, -45, 0, -1*target_dz],
-        [0.5, 0.0, min_z, -45, 0, target_dz],
-
-    ]
+    target_location = [0.0, 0.0, 0.68]
+    x_set = [0.2, 0.5]
+    y_set = [-0.3, 0, 0.4]
+    z_set = [0.1, 0.3]
+    roll_set= [-45, 0, 45]
+    dy_set = [-0.3, 0.3]
+    dz_set = [-0.3, 0.3]
+    configs = list(itertools.product(x_set, y_set, z_set, roll_set, dy_set, dz_set))
+    def valid_config(c):
+        if c[1] > 0 and c[3] < 0:
+            return False
+        if c[1] < 0 and c[3] > 0:
+            return False
+        if c[1] > 0 and c[4] > 0:
+            return False
+        if c[1] < 0 and c[4] < 0:
+            return False
+        return True
+    configs = [c for c in configs if valid_config(c)]
     for i, (x, y, z, roll, target_y_offset, target_z_offset) in enumerate(configs):
-        print(f"\n\n{i+1}/{len(configs)} New position: x={x}, y={y}, z={z}, roll={roll}")
+        print(f"\n\n{i+1}/{len(configs)} New position: x={x}, y={y}, z={z}, roll={roll}, target_y_offset={target_y_offset}, target_z_offset={target_z_offset}")
         instance_target = target_location.copy()
         instance_target[1] += target_y_offset
         instance_target[2] += target_z_offset
-        collect(x, y, z, roll, instance_target, controller_node)
+        time.sleep(1)
+        # collect(x, y, z, roll, instance_target, controller_node)
     print(f"\n\nAll done! Returning home")
     controller_node.go_home(duration=10)
     exit(0)

@@ -99,9 +99,9 @@ def vis_and_save(camera_node, controller_node, intrinsic_path, extrinsics_path):
             print(f"Saved intrinsics to {intrinsic_path}")
             intrinsics_made = True
         if not extrinsics_made:
-            transform = controller_node.get_tf(source_frame="left_hand_link", target_frame="left_hand_color_optical_frame", timeout=1.0)
-            if transform is not None:
-                np.savez(extrinsics_path, cam2optical=transform)
+            T = controller_node.get_tf(source_frame="left_hand_link", target_frame="left_hand_color_optical_frame", timeout=1.0)
+            if T is not None:
+                np.savez(extrinsics_path, cam2optical=T)
                 extrinsics_made = True
         transform = controller_node.get_tf(source_frame="left_wrist_yaw_link", target_frame="pelvis", timeout=1.0)
         if rgb is not None:
