@@ -12,6 +12,8 @@ DATA_DIR = "/ros2_ws/src/h12_cameracalibration/h12_cameracalibration/data/handin
 assert os.path.exists(DATA_DIR), f"Data dir not found: {DATA_DIR}"
 INTRINSICS_PATH = "/ros2_ws/src/h12_cameracalibration/h12_cameracalibration/data/handineye_calibration/intrinsics.npz"
 assert os.path.exists(INTRINSICS_PATH), f"Intrinsics file not found: {INTRINSICS_PATH}"
+EXTRINSICS_PATH = "/ros2_ws/src/h12_cameracalibration/h12_cameracalibration/data/handineye_calibration/extrinsics.npz"
+assert os.path.exists(EXTRINSICS_PATH), f"Extrinsics file not found: {EXTRINSICS_PATH}"
 
 INNER_CORNERS = (10, 7)      # (cols, rows)
 SQUARE_SIZE_M = 0.020         # 2cm
@@ -290,6 +292,7 @@ def get_error(
 def main():
     # Load intrinsics
     K, D, distortion_model, width, height, R_rect, P = load_intrinsics_npz(INTRINSICS_PATH)
+    rs2optical = np.load(EXTRINSICS_PATH, allow_pickle=True)["cam2optical"]
     print("[INFO] Intrinsics loaded:")
     print("K=\n", K)
     print("D=", D)
@@ -388,25 +391,18 @@ def main():
 
     T_camOpt2gripper = best_T.copy()
 
-    # ROS camera_link  -> optical frame (OpenCV) rotation
-    R_opt_from_ros = np.array([[0, -1,  0],
-                            [0,  0, -1],
-                            [1,  0,  0]], dtype=float)
+    T_cam2gripper = T_camOpt2gripper @ rs2optical
     
-    T_ros2opt = np.eye(4)
-    T_ros2opt[:3, :3] = R_opt_from_ros
-
-    T_camRos2gripper = T_camOpt2gripper @ T_ros2opt
 
 
 
-    R_ros2 = T_camRos2gripper[:3, :3]
-    t_ros2 = T_camRos2gripper[:3,  3]
+    R_final = T_cam2gripper[:3, :3]
+    t_final = T_cam2gripper[:3,  3]
 
 
     # Output values
-    x, y, z = t_ros2.flatten().tolist()
-    qx, qy, qz, qw = SciRot.from_matrix(R_ros2).as_quat()  # xyzw
+    x, y, z = t_final.flatten().tolist()
+    qx, qy, qz, qw = SciRot.from_matrix(R_final).as_quat()  # xyzw
     print(f"{x=:.6f}, {y=:.6f}, {z=:.6f}")
     print(f"{qx=}, {qy=}, {qz=}, {qw=}")
 
