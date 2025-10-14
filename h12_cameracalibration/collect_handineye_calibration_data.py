@@ -52,6 +52,7 @@ def save_camera_info(camera_info, filepath):
     # Projection matrix P (3x4)
     P = np.array(camera_info.p, dtype=np.float64).reshape(3, 4)
 
+
     # Save to .npz
     np.savez(
         filepath,
@@ -85,16 +86,23 @@ def get_corners(rgb):
 
 ready_to_save = False
 reverse_corners = False
-def vis_and_save(camera_node, controller_node, intrinsic_path, intrinsics_made):
+def vis_and_save(camera_node, controller_node, intrinsic_path, extrinsics_path):
     i = 0
     global ready_to_save
     last_t = np.eye(4)
+    intrinsics_made = False
+    extrinsics_made = False
     while True:
         rgb, info, = camera_node.get_data()
         if not intrinsics_made and info is not None:
             save_camera_info(info, intrinsic_path)
             print(f"Saved intrinsics to {intrinsic_path}")
             intrinsics_made = True
+        if not extrinsics_made:
+            transform = controller_node.get_tf(source_frame="left_hand_link", target_frame="left_hand_color_optical_frame", timeout=1.0)
+            if transform is not None:
+                np.savez(extrinsics_path, cam2optical=transform)
+                extrinsics_made = True
         transform = controller_node.get_tf(source_frame="left_wrist_yaw_link", target_frame="pelvis", timeout=1.0)
         if rgb is not None:
             h, w, _ = rgb.shape
@@ -232,13 +240,12 @@ def main():
     controller_node = ControllerNode()
     camera_node = CameraSubscriber("/realsense/left_hand")
     intrinsic_path = os.path.join(save_dir, "intrinsics.npz")
-    intrinsics_made = os.path.exists(intrinsic_path)
-    vis_thread = threading.Thread(target=vis_and_save, args=(camera_node, controller_node, intrinsic_path, intrinsics_made))
+    extrinsics_path = os.path.join(save_dir, "extrinsics.npz")
+    vis_thread = threading.Thread(target=vis_and_save, args=(camera_node, controller_node, intrinsic_path, extrinsics_path))
     vis_thread.start()
     time.sleep(1)
     print()
     print("camera initialized")
-
 
     target_location = [0.1, 0.85, 0.2]
     target = np.array(target_location, dtype=float)
@@ -358,8 +365,10 @@ def main():
     ]
     for i, (x, y, z, roll) in enumerate(configs):
         print(f"\n\n{i+1}/{len(configs)} New position: x={x}, y={y}, z={z}, roll={roll}")
-
         collect(x,y,z,roll,target, controller_node)
+
+
+
     print(f"\n\nAll done! Returning home")
     controller_node.go_home(duration=10)
     exit(0)
