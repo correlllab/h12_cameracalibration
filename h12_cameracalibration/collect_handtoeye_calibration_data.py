@@ -121,6 +121,7 @@ def vis_and_save(camera_node, controller_node, intrinsic_path, extrinsics_path):
 
 
             success, corners = get_corners(rgb)
+            # print(f"{success=}, {(transform is None)=}")
             if success and transform is not None:
                 cv2.drawChessboardCorners(display_img, TARGET_DIMS, corners, success)
                 stamp = f"{i=}"
@@ -241,7 +242,7 @@ def collect(x,y,z,roll,target, controller_node):
                 z = value
             if 'r' in cmd:
                 roll = value
-
+    return x,y,z, roll, target
 def main():
     controller_node = ControllerNode()
     camera_node = CameraSubscriber("/realsense/head")
@@ -254,32 +255,20 @@ def main():
     print("camera initialized")
 
 
-    target_location = [0.0, 0.0, 0.68]
-    x_set = [0.2, 0.5]
-    y_set = [-0.3, 0, 0.4]
-    z_set = [0.1, 0.3]
-    roll_set= [-45, 0, 45]
-    dy_set = [-0.3, 0.3]
-    dz_set = [-0.3, 0.3]
-    configs = list(itertools.product(x_set, y_set, z_set, roll_set, dy_set, dz_set))
-    def valid_config(c):
-        if c[1] > 0 and c[3] < 0:
-            return False
-        if c[1] < 0 and c[3] > 0:
-            return False
-        if c[1] > 0 and c[4] > 0:
-            return False
-        if c[1] < 0 and c[4] < 0:
-            return False
-        return True
-    configs = [c for c in configs if valid_config(c)]
-    for i, (x, y, z, roll, target_y_offset, target_z_offset) in enumerate(configs):
-        print(f"\n\n{i+1}/{len(configs)} New position: x={x}, y={y}, z={z}, roll={roll}, target_y_offset={target_y_offset}, target_z_offset={target_z_offset}")
-        instance_target = target_location.copy()
-        instance_target[1] += target_y_offset
-        instance_target[2] += target_z_offset
-        time.sleep(1)
-        # collect(x, y, z, roll, instance_target, controller_node)
+    target = [0.0, 0.0, 0.68]
+    x = 0.5
+    y = 0
+    z = 0
+    roll = 0
+    done = False
+    i=0
+    while not done:
+        print(f"\n\n{i+1}")
+        i+=1
+        x,y,z,roll,target = collect(x, y, z, roll, target, controller_node)
+        inp = input("press y to exit: ")
+        if inp == y:
+            done = True
     print(f"\n\nAll done! Returning home")
     controller_node.go_home(duration=10)
     exit(0)
