@@ -33,7 +33,6 @@ import threading
 
 
 
-EYEINHAND = True
 
 TARGET_DIMS = (10, 7)
 
