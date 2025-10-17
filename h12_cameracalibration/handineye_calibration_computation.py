@@ -162,7 +162,7 @@ def load_intrinsics_npz(path: str):
     P = d["P"].astype(float) if "P" in d else None
     return K, D, distortion_model, width, height, R, P
 
-def target2cam_from_corners(corners, K, D):
+def target2cam_from_corners(corners, K, D, target_dims, square_size_m):
     """
     Estimate the 4x4 target->camera transform using solvePnP.
 
@@ -178,14 +178,14 @@ def target2cam_from_corners(corners, K, D):
     """
   
     # --- Build the target model points (board frame, Z=0 plane) ---
-    cols, rows = INNER_CORNERS
+    cols, rows = target_dims
     N = cols * rows
     assert corners.shape[0] == N, f"Expected {N} corners, got {corners.shape[0]}"
     objp = np.zeros((N, 3), np.float32)
     objp[:, :2] = np.mgrid[0:cols, 0:rows].T.reshape(-1, 2)
     # print(f"[DEBUG] objp:\n{objp}")
 
-    objp *= float(SQUARE_SIZE_M)
+    objp *= float(square_size_m)
 
 
     # --- Prepare image points (N,2) float32 ---
@@ -317,7 +317,7 @@ def main():
         data = np.load(f)
         corners = data["corners"]
         print(" -", os.path.basename(f))
-        T_target2cam, error = target2cam_from_corners(corners, K, D)
+        T_target2cam, error = target2cam_from_corners(corners, K, D, INNER_CORNERS, SQUARE_SIZE_M)
         # T_target2cam = np.linalg.inv(T_target2cam)
         print(f"  Reprojection error rmse: {error:.3f} px")
         if error > 1.0:

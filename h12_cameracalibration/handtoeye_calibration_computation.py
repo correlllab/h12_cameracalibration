@@ -15,7 +15,7 @@ assert os.path.exists(INTRINSICS_PATH), f"Intrinsics file not found: {INTRINSICS
 EXTRINSICS_PATH = "/ros2_ws/src/h12_cameracalibration/h12_cameracalibration/data/handtoeye_calibration/extrinsics.npz"
 assert os.path.exists(EXTRINSICS_PATH), f"Extrinsics file not found: {EXTRINSICS_PATH}"
 
-INNER_CORNERS = (7, 10)      # (cols, rows)
+INNER_CORNERS = (10, 7)      # (cols, rows)
 SQUARE_SIZE_M = 0.010         # 1cm
 
 from handineye_calibration_computation import visualize_r_t, stack_T, load_intrinsics_npz, target2cam_from_corners, HAND_EYE_METHODS
@@ -59,7 +59,7 @@ def main():
         data = np.load(f)
         corners = data["corners"]
         print(" -", os.path.basename(f))
-        T_target2cam, error = target2cam_from_corners(corners, K, D)
+        T_target2cam, error = target2cam_from_corners(corners, K, D, INNER_CORNERS, SQUARE_SIZE_M)
         print(f"  Reprojection error rmse: {error:.3f} px")
         if error > 1.0:
             print(f"  [WARNING] High reprojection error {error:.3f} px, rejecting this sample.")
@@ -90,36 +90,19 @@ def main():
     # visualize_r_t(R_target2cam, t_target2cam, title="Target to Camera Poses")
     # plt.show()
 
-    best_error = float('inf')
-    iters = 20
-    sample_n = 7
-    solutions = []
-    for i in range(iters):
+   
 
-        sample_idxs = random.sample(range(len(R_base2gripper)), sample_n)
-        R_base2gripper_sample = [R_base2gripper[i] for i in sample_idxs]
-        t_base2gripper_sample = [t_base2gripper[i] for i in sample_idxs]
-        R_target2cam_sample = [R_target2cam[i] for i in sample_idxs]
-        t_target2cam_sample = [t_target2cam[i] for i in sample_idxs]
+       
+    R_base2cam, t_base2cam = cv2.calibrateHandEye(
+        R_base2gripper, t_base2gripper,
+        R_target2cam,  t_target2cam,
+        method=HAND_EYE_METHODS["TSAI"]
+    )
+    T_base2cam = np.eye(4)
+    T_base2cam[:3, :3] = R_base2cam
+    T_base2cam[:3, 3] = t_base2cam.flatten()
 
-        R_base2cam, t_base2cam = cv2.calibrateHandEye(
-            R_base2gripper_sample, t_base2gripper_sample,
-            R_target2cam_sample,  t_target2cam_sample,
-            method=HAND_EYE_METHODS["TSAI"]
-        )
-        T_base2cam = np.eye(4)
-        T_base2cam[:3, :3] = R_base2cam
-        T_base2cam[:3, 3] = t_base2cam.flatten()
-
-        solutions.append(T_base2cam)
-
-        # print(f"{T_base2cam}")
-    print(f"[RESULT] Best reprojection error: {best_error:.3f} mm RMS")
-
-    R_base2cam_all = [T[:3, :3] for T in solutions]
-    t_base2cam_all = [T[:3,  3].reshape(3,1) for T in solutions]
-    visualize_r_t(R_base2cam_all, t_base2cam_all, title="Base to Camera Poses (All Solutions)")
-    plt.show()
+    visualize_r_t([R_base2cam], [t_base2cam], title="Base to Camera Pose")
 
     T_base2camOpt = T_base2cam.copy()
 
