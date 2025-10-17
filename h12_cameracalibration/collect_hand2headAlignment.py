@@ -41,7 +41,6 @@ BASEFRAME = "pelvis"
 
 TARGET_DIMS = (10, 7)
 SQUARE_SIZE_M = 0.02
-from handtoeye_calibration_computation import target2cam_from_corners, load_intrinsics_npz
 
 
 def save_camera_info(camera_info, filepath):
