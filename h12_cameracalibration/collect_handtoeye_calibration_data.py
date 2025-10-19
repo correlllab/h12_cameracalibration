@@ -54,14 +54,14 @@ def get_handtoeye_pose_matrix(x,y,z,roll,target):
 def collect_handtoeye_calibration_data(save_dir):
     controller_node = ControllerNode()
     camera_node = CameraSubscriber("/realsense/head")
-    vis_thread = threading.Thread(target=vis_and_save, args=(camera_node, controller_node, "right_wrist_yaw_link", "head_link", "head_color_optical_frame", (10, 7), save_dir))
+    vis_thread = threading.Thread(target=vis_and_save, args=(controller_node, [camera_node], "right_wrist_yaw_link", ["head_link"], ["head_color_optical_frame"], (10, 7), save_dir))
     vis_thread.start()
     time.sleep(1)
     print()
     print("camera initialized")
 
 
-    target = [0.0, 0.0, 0.68]
+    target = np.array([0.0, 0.0, 0.68])
     x = 0.5
     y = 0
     z = 0
@@ -71,16 +71,15 @@ def collect_handtoeye_calibration_data(save_dir):
     while not done:
         print(f"\n\n{i+1}")
         i+=1
-        x,y,z,roll,target = collect_control_loop(x, y, z, roll, target, controller_node, get_handtoeye_pose_matrix)
+        x,y,z,roll,target = collect_control_loop(x, y, z, roll, target, controller_node, get_handtoeye_pose_matrix, use_right=True)
         inp = input("press y to exit: ")
-        if inp == y:
+        if inp == "y":
             done = True
     print(f"\n\nAll done! Returning home")
     controller_node.go_home(duration=10)
-    exit(0)
         
 
-if __name__ == "__main__":
+def main():
     data_dir = os.path.join(file_dir, 'data')
     os.makedirs(data_dir, exist_ok=True)
     save_dir = os.path.join(data_dir, 'handtoeye_calibration')
@@ -90,3 +89,6 @@ if __name__ == "__main__":
     shutil.rmtree(save_dir, ignore_errors=True)
     os.makedirs(save_dir, exist_ok=True)
     collect_handtoeye_calibration_data(save_dir)
+
+if __name__ == '__main__':
+    main()

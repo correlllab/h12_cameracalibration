@@ -162,9 +162,7 @@ def get_handineye_pose_matrix(x,y,z,roll, target):
 def collect_handineye_calibration_data(save_dir):
     controller_node = ControllerNode()
     camera_node = CameraSubscriber("/realsense/left_hand")
-    intrinsic_path = os.path.join(save_dir, "intrinsics.npz")
-    extrinsics_path = os.path.join(save_dir, "extrinsics.npz")
-    vis_thread = threading.Thread(target=vis_and_save, args=(camera_node, controller_node, "left_wrist_yaw_link", "left_hand_link", "left_hand_color_optical_frame", (10, 7), save_dir))
+    vis_thread = threading.Thread(target=vis_and_save, args=(controller_node, [camera_node], "left_wrist_yaw_link", ["left_hand_link"], ["left_hand_color_optical_frame"], (10, 7), save_dir))
     vis_thread.start()
     time.sleep(1)
     print()
@@ -175,14 +173,13 @@ def collect_handineye_calibration_data(save_dir):
     
     for i, (x, y, z, roll) in enumerate(configs):
         print(f"\n\n{i+1}/{len(configs)} New position: x={x}, y={y}, z={z}, roll={roll}")
-        collect_control_loop(x,y,z,roll,target, controller_node, get_handineye_pose_matrix)
+        collect_control_loop(x,y,z,roll,target, controller_node, get_handineye_pose_matrix, use_right=False)
 
     print(f"\n\nAll done! Returning home")
-    controller_node.go_home(duration=10)
-    exit(0)
-        
+    controller_node.go_home(duration=10)            
 
-if __name__ == "__main__":
+
+def main():
     data_dir = os.path.join(file_dir, 'data')
     os.makedirs(data_dir, exist_ok=True)
     save_dir = os.path.join(data_dir, 'handineye_calibration')
@@ -191,4 +188,7 @@ if __name__ == "__main__":
     input(f"press anything to delete {save_dir} and continue")
     shutil.rmtree(save_dir, ignore_errors=True)
     os.makedirs(save_dir, exist_ok=True)
-    collect_control_loop(save_dir)
+    collect_handineye_calibration_data(save_dir)
+
+if __name__ == "__main__":
+    main()

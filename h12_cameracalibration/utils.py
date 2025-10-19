@@ -4,6 +4,7 @@ import glob
 import random
 import cv2
 import matplotlib.pyplot as plt
+import time
 # ----------------------- SAVING utilities -----------------------
 ready_to_save = False
 def save_camera_info(camera_info, filepath):
@@ -49,12 +50,14 @@ def get_corners(rgb, target_dims):
         criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 1e-4)
         corners = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
     return ret, corners
-def vis_and_save(camera_node, controller_node, ee_frame, camera_base_frame, camera_optical_frame, target_dims, save_dir):
-    i = 0
+def vis_and_save(controller_node, camera_nodes, ee_frame, camera_base_frames, camera_optical_frames, target_dims, save_dir):
+    save_count = 0
     global ready_to_save
     last_t = np.eye(4)
-    intrinsics_made = False
-    extrinsics_made = False
+    
+    assert len(camera_nodes) == len(camera_base_frames) == len(camera_optical_frames)
+    intrinsics_made_list = [False] * len(camera_nodes)
+    extrinsics_made_list = [False] * len(camera_nodes)
 
     npz_save_dir = os.path.join(save_dir, 'npzs')
     os.makedirs(npz_save_dir, exist_ok=True)
@@ -63,56 +66,67 @@ def vis_and_save(camera_node, controller_node, ee_frame, camera_base_frame, came
     annotated_save_dir = os.path.join(save_dir, 'annotated')
     os.makedirs(annotated_save_dir, exist_ok=True)
 
-    intrinsic_path = os.path.join(npz_save_dir, 'intrinsics.npz')
-    extrinsics_path = os.path.join(npz_save_dir, 'extrinsics.npz')
+    intrinsics_paths = [os.path.join(save_dir, f'intrinsics_{i}.npz') for i in range(len(camera_nodes))]
+    extrinsics_paths = [os.path.join(save_dir, f'extrinsics_{i}.npz') for i in range(len(camera_nodes))]
 
 
     while True:
-        rgb, info, = camera_node.get_data()
-        if not intrinsics_made and info is not None:
-            save_camera_info(info, intrinsic_path)
-            print(f"Saved intrinsics to {intrinsic_path}")
-            intrinsics_made = True
-        if not extrinsics_made:
-            T = controller_node.get_tf(source_frame=camera_base_frame, target_frame=camera_optical_frame, timeout=1.0)
-            if T is not None:
-                np.savez(extrinsics_path, cam2optical=T)
-                extrinsics_made = True
-        transform = controller_node.get_tf(source_frame=ee_frame, target_frame="pelvis", timeout=1.0)
-        if rgb is not None:
-            h, w, _ = rgb.shape
-            display_img = rgb.copy()
-            d_T = float('inf')
+        camera_data_list = [camera_node.get_data() for camera_node in camera_nodes]
+        rgb_list = [data[0] for data in camera_data_list]
+        info_list = [data[1] for data in camera_data_list]
+        for i in range(len(camera_nodes)):
+            intrinsics_made = intrinsics_made_list[i]
+            extrinsics_made = extrinsics_made_list[i]
+            info = info_list[i]
+            if not intrinsics_made and info is not None:
+                save_camera_info(info, intrinsics_paths[i])
+                print(f"Saved intrinsics to {intrinsics_paths[i]}")
+                intrinsics_made_list[i] = True
+            if not extrinsics_made:
+                T = controller_node.get_tf(source_frame=camera_base_frames[i], target_frame=camera_optical_frames[i], timeout=1.0)
+                if T is not None:
+                    np.savez(extrinsics_paths[i], T_camerabase_cameraoptical=T)
+                    extrinsics_made_list[i] = True
+
+        ee_transform = controller_node.get_tf(source_frame=ee_frame, target_frame="pelvis", timeout=1.0)
+        d_T = float('inf')
+        if ee_transform is not None:
+            d_T = np.linalg.norm(ee_transform - last_t)
+            last_t = ee_transform
+
+
+        all_rgbs_good = True
+        for rgb in rgb_list:
+            if rgb is None:
+                all_rgbs_good = False
+
         
-            if transform is not None:
-                d_T = np.linalg.norm(transform - last_t).mean()
-                last_t = transform
-
-            cv2.putText(display_img, f"{d_T:0.4f}",
-                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0,255,0), 1)
+        if all_rgbs_good:
+            display_imgs = [rgb.copy() for rgb in rgb_list]
             
+            for display_img in display_imgs:
+                cv2.putText(display_img, f"{d_T:0.4f}",(10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0,255,0), 1)
 
 
-            success, corners = get_corners(rgb)
-            # print(f"{success=}, {(transform is None)=}")
-            if success and transform is not None:
-                cv2.drawChessboardCorners(display_img, target_dims, corners, success)
-                stamp = f"{i=}"
-                lin_diff = 0
-                ang_diff = 0
+            corner_results = [get_corners(rgb, target_dims) for rgb in rgb_list]
+            all_corners_found = True
+            for i, (success, corners) in enumerate(corner_results):
+                if not success:
+                    all_corners_found = False
+                else:
+                    cv2.drawChessboardCorners(display_imgs[i], target_dims, corners, success)
 
-                
-                # print(f"{lin_diff=}, {ang_diff=}")
-                if ready_to_save and d_T < 0.01:
-                    cv2.imwrite(os.path.join(raw_save_dir, f"calib_{stamp}.png"), rgb)
-                    cv2.imwrite(os.path.join(annotated_save_dir, f"calib_{stamp}.png"), display_img)
-                    np.savez(os.path.join(npz_save_dir, f"calib_{stamp}.npz"), corners=corners, pose=transform)
-                    print(f"Saved calib_{stamp}.png and calib_{stamp}.npz" )
-                    i+=1
-                    ready_to_save = False
+            
+            if all_corners_found and ready_to_save and d_T < 0.001:
+                for i in range(len(camera_nodes)):
+                    cv2.imwrite(os.path.join(raw_save_dir, f"calib_{save_count}_cam_{i}.png"), rgb_list[i])
+                    cv2.imwrite(os.path.join(annotated_save_dir, f"calib_{save_count}_cam_{i}.png"), display_imgs[i])
+                    display_img = cv2.resize(display_imgs[i], (640, 480), interpolation = cv2.INTER_AREA)
+                    cv2.imshow(f"rgb_camera_{i}", display_img)
+                    np.savez(os.path.join(npz_save_dir, f"calib_{save_count}_cam_{i}.npz"), corners=corner_results[i][1], T_base_ee=ee_transform)
 
-            display_img = cv2.resize(display_img, (640, 480), interpolation = cv2.INTER_AREA)
-            cv2.imshow("rgb", display_img)
+                save_count += 1
+                ready_to_save = False
 
         # quit on ESC
         key = cv2.waitKey(50) & 0xFF
@@ -120,9 +134,7 @@ def vis_and_save(camera_node, controller_node, ee_frame, camera_base_frame, came
             break
             
     cv2.destroyAllWindows()
-
-
-def collect_control_loop(x,y,z,roll,target, controller_node, pose_func):
+def collect_control_loop(x,y,z,roll,target, controller_node, pose_func, use_right = False):
     saved = False
     global ready_to_save
     while not saved:
@@ -130,8 +142,11 @@ def collect_control_loop(x,y,z,roll,target, controller_node, pose_func):
         # behavior_node.go_home(duration=5)
         print(f"\n\nMoving to x={x}, y={y}, z={z}, roll={roll}")
         print(f"Target: {target}")
-        controller_node.send_arm_goal(right_mat=T, duration=5)
-    
+        if use_right:
+            controller_node.send_arm_goal(right_mat=T, duration=5)
+        else:
+            controller_node.send_arm_goal(left_mat=T, duration=5)
+
         cmd = input("Enter x y z r or dx dy dz dr or 'q' to quit, s to save, h for home, k to skip, tx, ty,tz to move the target point: ")
         if cmd.strip().lower() in ['q', 'quit', 'exit']:
             break
@@ -183,7 +198,6 @@ def collect_control_loop(x,y,z,roll,target, controller_node, pose_func):
             if 'r' in cmd:
                 roll = value
     return x,y,z, roll, target
-
 
 # ----------------------- SE3 utilities -----------------------
 def stack_T(R, t):
@@ -387,7 +401,6 @@ def target2cam_from_corners(corners, K, D, target_dims, square_size_m):
     T_target2cam = stack_T(R_target2cam, t_target2cam)
 
     return T_target2cam, rmse
-
 
 def load_data(npz_dir, K, D, inner_corners, square_size_m):
     # Gather samples
