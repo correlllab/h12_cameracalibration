@@ -8,7 +8,8 @@ import random
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 # -------------------- HARDCODED CONFIG --------------------
-DATA_DIR = "/ros2_ws/src/h12_cameracalibration/h12_cameracalibration/data/hand2eye_alignment"
+# DATA_DIR = "/ros2_ws/src/h12_cameracalibration/h12_cameracalibration/data/hand2eye_alignment"
+DATA_DIR = "/Users/maxconway/h12_cameracalibration/h12_cameracalibration/data/hand2eye_alignment"
 assert os.path.exists(DATA_DIR), f"Data dir not found: {DATA_DIR}"
 npz_save_dir = os.path.join(DATA_DIR, "npzs")
 KNOWN_INTRINSICS_PATH = os.path.join(DATA_DIR, "known_intrinsics.npz")

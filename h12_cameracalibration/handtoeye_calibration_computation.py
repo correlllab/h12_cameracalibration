@@ -1,102 +1,37 @@
 import os
 import glob
-from typing import List, Tuple
 import numpy as np
 import cv2
 from scipy.spatial.transform import Rotation as SciRot
 import random
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-# -------------------- HARDCODED CONFIG --------------------
-DATA_DIR = "/ros2_ws/src/h12_cameracalibration/h12_cameracalibration/data/handtoeye_calibration/npzs"
-assert os.path.exists(DATA_DIR), f"Data dir not found: {DATA_DIR}"
-INTRINSICS_PATH = "/ros2_ws/src/h12_cameracalibration/h12_cameracalibration/data/handtoeye_calibration/intrinsics.npz"
-assert os.path.exists(INTRINSICS_PATH), f"Intrinsics file not found: {INTRINSICS_PATH}"
-EXTRINSICS_PATH = "/ros2_ws/src/h12_cameracalibration/h12_cameracalibration/data/handtoeye_calibration/extrinsics.npz"
-assert os.path.exists(EXTRINSICS_PATH), f"Extrinsics file not found: {EXTRINSICS_PATH}"
 
-INNER_CORNERS = (10, 7)      # (cols, rows)
-SQUARE_SIZE_M = 0.010         # 1cm
 
-from handineye_calibration_computation import visualize_r_t, stack_T, load_intrinsics_npz, target2cam_from_corners, HAND_EYE_METHODS
-def inv_SE3(T):
-    """Inverse of a rigid homogeneous transform (rotation+translation)."""
-    R = T[:3,:3]
-    t = T[:3, 3]
-    Ti = np.eye(4)
-    Rt = R.T
-    Ti[:3,:3] = Rt
-    Ti[:3, 3] = -Rt @ t
-    return Ti
+from utils import stack_T, visualize_r_t, load_intrinsics_npz, load_data, inv_SE3
 
-def main():
+
+def calibrate_handtoeye(data_dir, intrinsics_path, extrinsics_path, inner_corners, square_size_m):
     # Load intrinsics
-    K, D, distortion_model, width, height, R_rect, P = load_intrinsics_npz(INTRINSICS_PATH)
+    K, D, distortion_model, width, height, R_rect, P = load_intrinsics_npz(intrinsics_path)
+    rs2optical = np.load(extrinsics_path, allow_pickle=True)["cam2optical"]
     print("[INFO] Intrinsics loaded:")
     print("K=\n", K)
     print("D=", D)
     print("distortion_model=", distortion_model)
     print(f"image size: {width} x {height}")
-
-    # Gather samples
-    npz_files = sorted(glob.glob(os.path.join(DATA_DIR, "*.npz")))
-    if not npz_files:
-        raise FileNotFoundError(f"No NPZ files found in {DATA_DIR}")
-    npz_files = [f for f in npz_files if os.path.basename(f) != "intrinsics.npz"]
-    random.shuffle(npz_files)
-    rs2optical = np.load(EXTRINSICS_PATH, allow_pickle=True)["cam2optical"]
-    print(f"[INFO] Found {len(npz_files)} NPZ files in {DATA_DIR}")
+    R_gripper2base, t_gripper2base, R_target2cam, t_target2cam, corners_arr = load_data(data_dir, K, D, inner_corners, square_size_m)
     R_base2gripper = []
     t_base2gripper = []
-    R_gripper2base = []
-    t_gripper2base = []
-    R_target2cam = []
-    t_target2cam = []
-    corners_arr = []
-    rejected = 0
-
-    for f in npz_files:
-        data = np.load(f)
-        corners = data["corners"]
-        print(" -", os.path.basename(f))
-        T_target2cam, error = target2cam_from_corners(corners, K, D, INNER_CORNERS, SQUARE_SIZE_M)
-        print(f"  Reprojection error rmse: {error:.3f} px")
-        if error > 1.0:
-            print(f"  [WARNING] High reprojection error {error:.3f} px, rejecting this sample.")
-            rejected += 1
-            continue
-        print()
-        corners_arr.append(corners)
-
-        R_target2cam.append(T_target2cam[:3, :3])
-        t_target2cam.append(T_target2cam[:3, 3].reshape(3,1))
-        T_gripper2base = data["pose"]
-        R_gripper2base.append(T_gripper2base[:3, :3])
-        t_gripper2base.append(T_gripper2base[:3, 3].reshape(3,1))
-         # Invert to get base to gripper
-
-
+    for R, t in zip(R_gripper2base, t_gripper2base):
+        T_gripper2base = stack_T(R, t)
         T_base2gripper = inv_SE3(T_gripper2base)
         R_base2gripper.append(T_base2gripper[:3, :3])
         t_base2gripper.append(T_base2gripper[:3, 3].reshape(3,1))
-        
-    print(f"[INFO] Rejected {rejected} samples due to high reprojection error.")
-    assert len(R_base2gripper) == len(t_base2gripper) == len(R_target2cam) == len(t_target2cam)
-    print(f"[INFO] Loaded {len(R_base2gripper)} samples")
-    print(f"[INFO] Example shape: {R_base2gripper[0].shape=}, {t_base2gripper[0].shape=} {R_target2cam[0].shape=}, {t_target2cam[0].shape=}")
-
-    # visualize_r_t(R_base2gripper, t_base2gripper, title="Base to Gripper Poses")
-    # visualize_r_t(R_gripper2base, t_gripper2base, title="Gripper to Base Poses")
-    # visualize_r_t(R_target2cam, t_target2cam, title="Target to Camera Poses")
-    # plt.show()
-
-   
-
        
     R_base2cam, t_base2cam = cv2.calibrateHandEye(
         R_base2gripper, t_base2gripper,
         R_target2cam,  t_target2cam,
-        method=HAND_EYE_METHODS["TSAI"]
+        method=cv2.CALIB_HAND_EYE_TSAI
     )
     T_base2cam = np.eye(4)
     T_base2cam[:3, :3] = R_base2cam
@@ -125,6 +60,17 @@ def main():
     print(f"'{qx}', '{qy}', '{qz}', '{qw}',")
 
     plt.show()
+    return T_base2cam
 
 if __name__ == "__main__":
-    main()
+    INNER_CORNERS = (10, 7)      # (cols, rows)
+    SQUARE_SIZE_M = 0.020         # 2cm
+    file_location = os.path.dirname(os.path.abspath(__file__))
+    print(f"File location: {file_location}")
+    DATA_DIR = os.path.join(file_location, "data", "handtoeye_calibration", "npzs")
+    assert os.path.exists(DATA_DIR), f"Data dir not found: {DATA_DIR}"
+    INTRINSICS_PATH = os.path.join(file_location, "data", "handtoeye_calibration", "intrinsics.npz")
+    assert os.path.exists(INTRINSICS_PATH), f"Intrinsics file not found: {INTRINSICS_PATH}"
+    EXTRINSICS_PATH = os.path.join(file_location, "data", "handtoeye_calibration", "extrinsics.npz")
+    assert os.path.exists(EXTRINSICS_PATH), f"Extrinsics file not found: {EXTRINSICS_PATH}"
+    calibrate_handtoeye(DATA_DIR, INTRINSICS_PATH, EXTRINSICS_PATH, INNER_CORNERS, SQUARE_SIZE_M)
