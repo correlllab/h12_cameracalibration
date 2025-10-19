@@ -51,7 +51,7 @@ def collect_bundle_data(save_dir):
     for x,y,z,roll in configs:
         i+=1
         print(f"\n\n{i+1}")
-        collect_control_loop(x,y,z,roll,target, controller_node, get_handineye_pose_matrix, use_right==False)
+        collect_control_loop(x,y,z,roll,target, controller_node, get_handineye_pose_matrix, use_right=False)
     print(f"\n\nAll done! Returning home")
     controller_node.go_home(duration=10)
 

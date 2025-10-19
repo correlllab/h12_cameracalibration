@@ -168,7 +168,7 @@ def collect_handineye_calibration_data(save_dir):
     print()
     print("camera initialized")
 
-    target_location = [0.1, 0.85, 0.2]
+    target_location = [-0.1, 1.17, 0.3]
     target = np.array(target_location, dtype=float)
     
     for i, (x, y, z, roll) in enumerate(configs):

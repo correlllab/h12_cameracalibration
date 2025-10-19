@@ -20,6 +20,17 @@ import threading
 from utils import vis_and_save, collect_control_loop
 
 
+configs = [
+    [0.5, 0, 0, 0],
+    [0.5, 0.1, 0, 0],
+    [0.5, -0.3, 0, 0],
+
+    [0.2, 0, 0.2, 0],
+    [0.3, 0.1, 0.2, 0],
+    [0.3, -0.1, 0.2, -45]
+]
+
+
 def get_handtoeye_pose_matrix(x,y,z,roll,target):
     roll += 180
     pos = np.array([x, y, z], dtype=float)
@@ -62,19 +73,9 @@ def collect_handtoeye_calibration_data(save_dir):
 
 
     target = np.array([0.0, 0.0, 0.68])
-    x = 0.5
-    y = 0
-    z = 0
-    roll = 0
-    done = False
-    i=0
-    while not done:
+    for i, (x,y,z,roll) in enumerate(configs):
         print(f"\n\n{i+1}")
-        i+=1
         x,y,z,roll,target = collect_control_loop(x, y, z, roll, target, controller_node, get_handtoeye_pose_matrix, use_right=True)
-        inp = input("press y to exit: ")
-        if inp == "y":
-            done = True
     print(f"\n\nAll done! Returning home")
     controller_node.go_home(duration=10)
         

@@ -13,7 +13,7 @@ from utils import stack_T, visualize_r_t, load_intrinsics_npz, load_data, inv_SE
 def calibrate_handtoeye(data_dir, intrinsics_path, extrinsics_path, inner_corners, square_size_m):
     # Load intrinsics
     K, D, distortion_model, width, height, R_rect, P = load_intrinsics_npz(intrinsics_path)
-    rs2optical = np.load(extrinsics_path, allow_pickle=True)["cam2optical"]
+    rs2optical = np.load(extrinsics_path, allow_pickle=True)["T_camerabase_cameraoptical"]
     print("[INFO] Intrinsics loaded:")
     print("K=\n", K)
     print("D=", D)
@@ -69,7 +69,7 @@ if __name__ == "__main__":
     print(f"File location: {file_location}")
     DATA_DIR = os.path.join(file_location, "data", "handtoeye_calibration", "npzs")
     assert os.path.exists(DATA_DIR), f"Data dir not found: {DATA_DIR}"
-    INTRINSICS_PATH = os.path.join(file_location, "data", "handtoeye_calibration", "intrinsics.npz")
+    INTRINSICS_PATH = os.path.join(file_location, "data", "handtoeye_calibration", "intrinsics_0.npz")
     assert os.path.exists(INTRINSICS_PATH), f"Intrinsics file not found: {INTRINSICS_PATH}"
     EXTRINSICS_PATH = os.path.join(file_location, "data", "handtoeye_calibration", "extrinsics.npz")
     assert os.path.exists(EXTRINSICS_PATH), f"Extrinsics file not found: {EXTRINSICS_PATH}"

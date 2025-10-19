@@ -51,6 +51,7 @@ def get_corners(rgb, target_dims):
         corners = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
     return ret, corners
 def vis_and_save(controller_node, camera_nodes, ee_frame, camera_base_frames, camera_optical_frames, target_dims, save_dir):
+    print("in vis and save")
     save_count = 0
     global ready_to_save
     last_t = np.eye(4)
@@ -69,8 +70,9 @@ def vis_and_save(controller_node, camera_nodes, ee_frame, camera_base_frames, ca
     intrinsics_paths = [os.path.join(save_dir, f'intrinsics_{i}.npz') for i in range(len(camera_nodes))]
     extrinsics_paths = [os.path.join(save_dir, f'extrinsics_{i}.npz') for i in range(len(camera_nodes))]
 
-
+    # print("begining loop")
     while True:
+        # print("looped")
         camera_data_list = [camera_node.get_data() for camera_node in camera_nodes]
         rgb_list = [data[0] for data in camera_data_list]
         info_list = [data[1] for data in camera_data_list]
@@ -100,10 +102,8 @@ def vis_and_save(controller_node, camera_nodes, ee_frame, camera_base_frames, ca
             if rgb is None:
                 all_rgbs_good = False
 
-        
         if all_rgbs_good:
             display_imgs = [rgb.copy() for rgb in rgb_list]
-            
             for display_img in display_imgs:
                 cv2.putText(display_img, f"{d_T:0.4f}",(10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0,255,0), 1)
 
@@ -121,13 +121,15 @@ def vis_and_save(controller_node, camera_nodes, ee_frame, camera_base_frames, ca
                 for i in range(len(camera_nodes)):
                     cv2.imwrite(os.path.join(raw_save_dir, f"calib_{save_count}_cam_{i}.png"), rgb_list[i])
                     cv2.imwrite(os.path.join(annotated_save_dir, f"calib_{save_count}_cam_{i}.png"), display_imgs[i])
-                    display_img = cv2.resize(display_imgs[i], (640, 480), interpolation = cv2.INTER_AREA)
-                    cv2.imshow(f"rgb_camera_{i}", display_img)
+                    
                     np.savez(os.path.join(npz_save_dir, f"calib_{save_count}_cam_{i}.npz"), corners=corner_results[i][1], T_base_ee=ee_transform)
 
                 save_count += 1
                 ready_to_save = False
-
+            for i in range(len(display_imgs)):
+                display_img = cv2.resize(display_imgs[i], (640, 480), interpolation = cv2.INTER_AREA)
+                cv2.imshow(f"rgb_camera_{i}", display_img)
+                # print("imshow called")
         # quit on ESC
         key = cv2.waitKey(50) & 0xFF
         if key == 27:  # ESC
@@ -407,7 +409,6 @@ def load_data(npz_dir, K, D, inner_corners, square_size_m):
     npz_files = sorted(glob.glob(os.path.join(npz_dir, "*.npz")))
     if not npz_files:
         raise FileNotFoundError(f"No NPZ files found in {npz_dir}")
-    npz_files = [f for f in npz_files if os.path.basename(f) != "intrinsics.npz"]
     random.shuffle(npz_files)
     print(f"[INFO] Found {len(npz_files)} NPZ files in {npz_dir}")
     R_gripper2base = []
@@ -433,7 +434,7 @@ def load_data(npz_dir, K, D, inner_corners, square_size_m):
 
         R_target2cam.append(T_target2cam[:3, :3])
         t_target2cam.append(T_target2cam[:3, 3].reshape(3,1))
-        T_gripper2base = data["pose"]
+        T_gripper2base = data["T_base_ee"]
         # T_gripper2base = np.linalg.inv(T_gripper2base)
         R_gripper2base.append(T_gripper2base[:3, :3])
         t_gripper2base.append(T_gripper2base[:3, 3].reshape(3,1))
