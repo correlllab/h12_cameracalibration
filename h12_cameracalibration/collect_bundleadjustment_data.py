@@ -21,21 +21,6 @@ UNKNOWN_BASE_FRAME = "head_link"
 from collect_handineye_calibration_data import get_handineye_pose_matrix
 from utils import vis_and_save, collect_control_loop
 
-configs =[
-    (0.1, 0.4, 0.3, 0.0),
-    (0.1, 0.4, 0.0, 0.0),
-    (0.1, 0.4, 0.5, 0.0),
-
-    (0.1, 0.2, 0.3, 0.0),
-    (0.1, 0.2, 0.0, 0.0),
-    (0.1, 0.2, 0.5, 0.0),
-
-    (0.1, 0.0, 0.3, 0.0),
-    (0.1, 0.0, 0.0, 0.0),
-    (0.1, 0.0, 0.5, 0.0),
-
-]
-
 
 def collect_bundle_data(save_dir):
     controller_node = ControllerNode()
@@ -46,12 +31,17 @@ def collect_bundle_data(save_dir):
     time.sleep(1)
     print()
     print("camera initialized")
-    target = np.array([1.0, 0.0, 0.2])
+    target = np.array([0.8, 0.0, 0.25])
     i = 0
-    for x,y,z,roll in configs:
+    x = 0.3
+    y = 0
+    z = 0
+    roll = 0
+    done = False
+    while not done:
         i+=1
         print(f"\n\n{i+1}")
-        collect_control_loop(x,y,z,roll,target, controller_node, get_handineye_pose_matrix, use_right=False)
+        x,y,z,roll, target = collect_control_loop(x,y,z,roll,target, controller_node, get_handineye_pose_matrix, use_right=False)
     print(f"\n\nAll done! Returning home")
     controller_node.go_home(duration=10)
 

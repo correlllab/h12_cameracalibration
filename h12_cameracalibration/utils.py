@@ -427,7 +427,7 @@ def load_data(npz_dir, K, D, inner_corners, square_size_m):
         T_target2cam, error = target2cam_from_corners(corners, K, D, inner_corners, square_size_m)
         # T_target2cam = np.linalg.inv(T_target2cam)
         print(f"  Reprojection error rmse: {error:.3f} px")
-        if error > 1.0:
+        if error > 1.5:
             print(f"  [WARNING] High reprojection error {error:.3f} px, rejecting this sample.")
             rejected += 1
             continue

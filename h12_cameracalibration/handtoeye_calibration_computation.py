@@ -20,6 +20,7 @@ def calibrate_handtoeye(data_dir, intrinsics_path, extrinsics_path, inner_corner
     print("distortion_model=", distortion_model)
     print(f"image size: {width} x {height}")
     R_gripper2base, t_gripper2base, R_target2cam, t_target2cam, corners_arr = load_data(data_dir, K, D, inner_corners, square_size_m)
+    visualize_r_t(R_target2cam, t_target2cam)
     R_base2gripper = []
     t_base2gripper = []
     for R, t in zip(R_gripper2base, t_gripper2base):
@@ -71,6 +72,6 @@ if __name__ == "__main__":
     assert os.path.exists(DATA_DIR), f"Data dir not found: {DATA_DIR}"
     INTRINSICS_PATH = os.path.join(file_location, "data", "handtoeye_calibration", "intrinsics_0.npz")
     assert os.path.exists(INTRINSICS_PATH), f"Intrinsics file not found: {INTRINSICS_PATH}"
-    EXTRINSICS_PATH = os.path.join(file_location, "data", "handtoeye_calibration", "extrinsics.npz")
+    EXTRINSICS_PATH = os.path.join(file_location, "data", "handtoeye_calibration", "extrinsics_0.npz")
     assert os.path.exists(EXTRINSICS_PATH), f"Extrinsics file not found: {EXTRINSICS_PATH}"
     calibrate_handtoeye(DATA_DIR, INTRINSICS_PATH, EXTRINSICS_PATH, INNER_CORNERS, SQUARE_SIZE_M)

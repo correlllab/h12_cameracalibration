@@ -189,24 +189,17 @@ def collect_handineye_calibration_data(save_dir):
 
     target_location = [0.1, 0.8, 0.25]
     target = np.array(target_location, dtype=float)
-    Ts = []
-    half_circ_configs = get_config(0.3, target_location)
-    half_circ_configs = [(x,y-0.2,z,roll) for x,y,z,roll in half_circ_configs]
-    configs.extend(half_circ_configs)
-    for x,y,z, roll in configs:
-        T = get_handineye_pose_matrix(x,y,z,roll,target)
-        Ts.append(T)
 
-    Rs = [T[:3, :3] for T in Ts]
-    ts = [T[:3, 3] for T in Ts]
-    Rs.append(np.eye(3))
-    ts.append(np.array(target_location))
-    visualize_r_t(Rs, ts, show=True)
-
-    for i, (x, y, z, roll) in enumerate(configs):
-        y += dy
+    i = 0
+    done = False
+    x = 0
+    y = 0.3
+    z = 0
+    roll = 0
+    while not done:
         print(f"\n\n{i+1}/{len(configs)} New position: x={x}, y={y}, z={z}, roll={roll}")
-        _,_,_,_, target = collect_control_loop(x,y,z,roll,target, controller_node, get_handineye_pose_matrix, use_right=False)
+        x,y,z,roll, target = collect_control_loop(x,y,z,roll,target, controller_node, get_handineye_pose_matrix, use_right=False)
+
 
     print(f"\n\nAll done! Returning home")
     controller_node.go_home(duration=10)            
