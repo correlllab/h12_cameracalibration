@@ -10,12 +10,12 @@ from utils import stack_T, visualize_r_t, load_intrinsics_npz, load_data, inv_SE
 
 
 def get_error(
-    R_gripper2base: List[np.ndarray],
-    t_gripper2base: List[np.ndarray],
-    R_target2camera: List[np.ndarray],
-    t_target2camera: List[np.ndarray],
-    R_camera2gripper: np.ndarray,
-    t_camera2gripper: np.ndarray,
+    R_base_gripper: List[np.ndarray],
+    t_base_gripper: List[np.ndarray],
+    R_camera_target: List[np.ndarray],
+    t_camera_target: List[np.ndarray],
+    R_gripper_camera: np.ndarray,
+    t_gripper_camera: np.ndarray,
     corners_list: List[np.ndarray],
     K: np.ndarray,
     D: np.ndarray,
@@ -25,32 +25,28 @@ def get_error(
     Compute overall reprojection RMSE [px] for a hand-eye solution.
 
     Inputs:
-        R_gripper2base, t_gripper2base : lists of gripper->base rotations/translations (each 3x3, 3x1)
-        R_target2camera, t_target2camera : lists of target->camera rotations/translations (each 3x3, 3x1)
-        R_camera2gripper, t_camera2gripper : camera->gripper rotation/translation (3x3, 3x1) = X
+        R_base_gripper, t_base_gripper : lists of base->gripper rotations/translations (each 3x3, 3x1)
+        R_camera_target, t_camera_target : lists of camera->target rotations/translations (each 3x3, 3x1)
+        R_gripper_camera, t_gripper_camera : gripper->camera rotation/translation (3x3, 3x1) = X
         corners_list : list of detected chessboard corners, each (N,1,2)
         K, D         : camera intrinsics and distortion
     Returns:
-        RMSE reprojection error over all frames & corners [pixels].
+        Returns:
+        rmse_px: reprojection RMSE [px]
     """
     # --- Build transforms ---
-    T_gripper2base = [stack_T(R, t) for R, t in zip(R_gripper2base, t_gripper2base)]
-    T_target2camera = [stack_T(R, t) for R, t in zip(R_target2camera, t_target2camera)]
-    T_camera2gripper= stack_T(R_camera2gripper, t_camera2gripper)
-    T_gripper2camera = inv_SE3(T_camera2gripper)
+    H_base_gripper = [stack_T(R, t) for R, t in zip(R_base_gripper, t_base_gripper)]
+    H_camera_target = [stack_T(R, t) for R, t in zip(R_camera_target, t_camera_target)]
+    H_gripper_camera = stack_T(R_gripper_camera, t_gripper_camera)
 
     # --- Target->Base per frame ---
-    T_target2base = [T_g2b @ T_camera2gripper @ T_t2c for T_g2b, T_t2c in zip(T_gripper2base, T_target2camera)]
-
-    # ---Mean target->base pose as the reference ---
-    R_list = [T[:3, :3] for T in T_target2base]
-    t_stack = np.stack([T[:3, 3] for T in T_target2base], axis=0)
-    # visualize_r_t(R_list, t_stack, axis_len=0.005, title="Base->Target Poses")
-    t_ref = t_stack.mean(axis=0)
-
-    R_ref = SciRot.from_matrix(np.stack(R_list)).mean().as_matrix()
-
-    T_ref_target2base = stack_T(R_ref, t_ref.reshape(3, 1))
+    H_base_target = [H_b_g @ H_gripper_camera @ H_c_t for H_b_g, H_c_t in zip(H_base_gripper, H_camera_target)]
+    # Rs = [H[:3,:3] for H in H_base_target]
+    # Ts = [H[:3,3] for H in H_base_target]
+    # visualize_r_t(Rs, np.stack(Ts), axis_len=0.05, title="Base->Target Poses for Error Computation", show=True)
+    R_ref = SciRot.from_matrix(np.stack([H[:3,:3] for H in H_base_target])).mean().as_matrix()
+    t_ref = np.mean([H[:3,3] for H in H_base_target], axis=0).reshape(3,1)
+    H_base_target_ref = stack_T(R_ref, t_ref)
 
     # --- Prepare chessboard model points (Z=0 plane in target frame) ---
     cols, rows = inner_corners
@@ -58,24 +54,30 @@ def get_error(
     objp = np.zeros((N, 3), np.float32)
     objp[:, :2] = np.mgrid[0:cols, 0:rows].T.reshape(-1, 2).astype(np.float32)
     objp *= float(square_size_m)  # meters
-    
-    # --- Compute reference board points in base frame (meters) ---
-    objp_h = np.hstack([objp, np.ones((N, 1), dtype=np.float32)])  # (N,4)
-    P_ref_b = (T_ref_target2base @ objp_h.T).T[:, :3]  # (N,3) meters
 
-    # --- For each frame: transform board points to base, compare to reference ---
-    total_sq_err_m2 = 0.0
-    total_pts = 0
 
-    for T_t2b in T_target2base:
-        P_b = (T_t2b @ objp_h.T).T[:, :3]  # (N,3) meters
-        d = P_b - P_ref_b                  # (N,3) meters
-        total_sq_err_m2 += float(np.sum(d ** 2))
-        total_pts += N
+    total_sq_error_px = 0.0
+    total_corners = 0
+    H_camera_gripper = inv_SE3(H_gripper_camera)
+    for H_b_g, corners in zip(H_base_gripper, corners_list):
+        H_g_b = inv_SE3(H_b_g)
+        pred_H_c_t = H_camera_gripper @ H_g_b @ H_base_target_ref
+        rvec, tvec = cv2.Rodrigues(pred_H_c_t[:3, :3])[0], pred_H_c_t[:3, 3].reshape(3, 1)
 
-    # RMSE in millimeters
-    rmse_mm = 1000.0 * float(np.sqrt(total_sq_err_m2 / total_pts))
-    return rmse_mm
+        imgpts, _ = cv2.projectPoints(
+            objp,
+            rvec,
+            tvec,
+            K,
+            D
+        )  # imgpts: (N,1,2)
+
+        d = imgpts - corners  # (N,1,2)
+        total_sq_error_px += float(np.sum(d ** 2))
+        total_corners += corners.shape[0]
+    rmse_px = float(np.sqrt(total_sq_error_px / total_corners))
+
+    return  rmse_px
 
 def calibrate_handineye(data_dir, intrinsics_path, extrinsics_path, inner_corners, square_size_m):
     # Load intrinsics
@@ -91,7 +93,7 @@ def calibrate_handineye(data_dir, intrinsics_path, extrinsics_path, inner_corner
     visualize_r_t(R_gripper2base, t_gripper2base)
     best_T = np.eye(4)
     best_error = float('inf')
-    ransac_iters = 1000
+    ransac_iters = 20
     sample_n = 5
     for i in range(ransac_iters):
 
@@ -110,20 +112,20 @@ def calibrate_handineye(data_dir, intrinsics_path, extrinsics_path, inner_corner
         T_cam2gripper[:3, :3] = R_cam2gripper
         T_cam2gripper[:3, 3] = t_cam2gripper.flatten()
 
-        error_mm = get_error(
+        error_px = get_error(
             R_gripper2base, t_gripper2base,
             R_target2cam,  t_target2cam,
             R_cam2gripper, t_cam2gripper,
             corners_arr, K, D, inner_corners, square_size_m
         )
-        # print(f"{i}: {error_mm=:.3f} mm RMS")
-        # print("\n\n")
+        print(f"{i}: {error_px=:.3f} px RMS")
+        print("\n\n")
 
-        if error_mm < best_error:
-            best_error = error_mm
+        if error_px < best_error:
+            best_error = error_px
             best_T = T_cam2gripper.copy()
 
-    print(f"[RESULT] Best reprojection error: {best_error:.3f} mm RMS")
+    print(f"[RESULT] Best reprojection error: {best_error:.3f} px RMS")
 
 
     T_gripper2base = [stack_T(R, t) for R, t in zip(R_gripper2base, t_gripper2base)]
