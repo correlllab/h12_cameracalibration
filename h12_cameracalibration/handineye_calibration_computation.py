@@ -88,11 +88,11 @@ def calibrate_handineye(data_dir, intrinsics_path, extrinsics_path, inner_corner
     print(f"image size: {width} x {height}")
 
     R_gripper2base, t_gripper2base, R_target2cam, t_target2cam, corners_arr = load_data(data_dir, K, D, inner_corners, square_size_m)
-
+    visualize_r_t(R_gripper2base, t_gripper2base)
     best_T = np.eye(4)
     best_error = float('inf')
-    ransac_iters = 100
-    sample_n = 7
+    ransac_iters = 1000
+    sample_n = 5
     for i in range(ransac_iters):
 
         sample_idxs = random.sample(range(len(R_gripper2base)), sample_n)
