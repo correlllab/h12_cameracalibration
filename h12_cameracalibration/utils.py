@@ -218,7 +218,7 @@ def inv_SE3(T):
     return Ti
 
 # ----------------------- Visualization loaders -----------------------
-def visualize_r_t(R_list, t_list, axis_len=0.1, draw_world=True, connect_trajectory=False, title=""):
+def visualize_r_t(R_list, t_list, axis_len=0.1, draw_world=True, connect_trajectory=False, title="", show=True):
     """
     Visualize a sequence of poses given by rotation matrices and translations.
 
@@ -287,6 +287,8 @@ def visualize_r_t(R_list, t_list, axis_len=0.1, draw_world=True, connect_traject
     ax.set_title(title)
 
     plt.tight_layout()
+    if show:
+        plt.show()
     return fig, ax
 
 def _draw_frame(ax, t, R, length=0.1, label=None):
