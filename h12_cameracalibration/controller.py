@@ -165,3 +165,8 @@ class ControllerNode(Node):
     def close(self):
         self.destroy_node()
         rclpy.shutdown()
+
+def main():
+    controller = ControllerNode()
+    controller.go_home()
+    controller.close()
