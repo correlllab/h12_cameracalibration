@@ -91,7 +91,7 @@ def vis_and_save(controller_node, camera_nodes, ee_frame, base_frame, camera_bas
                 if H is not None:
                     np.savez(extrinsics_paths[i], H_cameraoptical_camerabase=H)
                     extrinsics_made_list[i] = True
-
+        
         H_base_ee = controller_node.get_tf(source_frame=ee_frame, target_frame=base_frame, timeout=1.0)
         d_H = float('inf')
         if H_base_ee is not None:

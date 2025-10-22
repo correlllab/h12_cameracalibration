@@ -14,7 +14,7 @@ from h12_controller import ControllerNode as H12ControllerNode
 from camerainterface import CameraSubscriber
 import threading
 from utils import vis_and_save, collect_control_loop, visualize_r_t
-
+import itertools
 configs = [
         #straight y
         [0, 0.1, 0, 0],
@@ -180,7 +180,7 @@ def get_handineye_pose_matrix(x,y,z,roll, target):
     return T
 
 def collect_handineye_calibration_data(save_dir):
-    UR = True
+    UR = False
     camera_node = None
     controller_node = None
     base_frame = None
@@ -189,19 +189,23 @@ def collect_handineye_calibration_data(save_dir):
     camera_optical_frame = None
     if UR:
         save_dir = save_dir + "_ur"
-        camera_node = CameraSubscriber("/camera/camera")
         controller_node = URControllerNode()
+        camera_node = CameraSubscriber("/camera/camera")
         base_frame = "UR20255601087_world"
         ee_frame = "UR20255601087_tcp"
         cam_frame = "camera_link"
         camera_optical_frame = "camera_color_optical_frame"
     else:
-        camera_node = CameraSubscriber("/realsense/left_hand")
+        save_dir = save_dir + "_h12"
         controller_node = H12ControllerNode()
+        camera_node = CameraSubscriber("/realsense/left_hand")
         base_frame = "pelvis"
-        ee_frame = "UR20255601087_tcp"#"left_wrist_yaw_link"
-        cam_frame = "camera_link" #left_hand_link
-        camera_optical_frame = "camera_color_optical_frame" #left_hand_color_optical_frame
+        ee_frame = "left_wrist_yaw_link"
+        cam_frame = "left_hand_link"
+        camera_optical_frame = "left_hand_color_optical_frame"
+    input(f"press anything to delete {save_dir} and continue")
+    shutil.rmtree(save_dir, ignore_errors=True)
+    os.makedirs(save_dir, exist_ok=True)
     vis_thread = threading.Thread(target=vis_and_save, args=(controller_node, [camera_node], ee_frame, base_frame, [cam_frame], [camera_optical_frame], (10, 7), save_dir))
     vis_thread.start()
     time.sleep(1)
@@ -211,19 +215,32 @@ def collect_handineye_calibration_data(save_dir):
     target_location = [0.1, 0.8, 0.25]
     target = np.array(target_location, dtype=float)
 
-    i = 0
+    
+    
+   
+    x_set = [-0.3, 0, 0.3]
+    z_set = [0, 0.3, 0.6]
+    y_set = [0.2, 0.4, 0.6]
+    roll = [-45, 0, 45]
+    configs = list(itertools.product(x_set, y_set, z_set, roll))
+    i=0
+    for x,y,z,roll in configs:
+        print(f"\n\n{i+1}/{len(configs)} New position: x={x}, y={y}, z={z}, roll={roll}")
+        i+=1
+        collect_control_loop(x,y,z,roll,target, controller_node, get_handineye_pose_matrix, use_right=False)
+
+
     done = False
     x = 0
     y = 0.3
     z = 0
     roll = 0
     while not done:
-        print(f"\n\n{i+1}/{len(configs)} New position: x={x}, y={y}, z={z}, roll={roll}")
+        print(f"\n\nfree style {i}")
+        i+=1
         x,y,z,roll, target = collect_control_loop(x,y,z,roll,target, controller_node, get_handineye_pose_matrix, use_right=False)
-
-
     print(f"\n\nAll done! Returning home")
-    controller_node.go_home(duration=10)            
+    controller_node.go_home(duration=10)     
 
 
 def main():
@@ -232,9 +249,7 @@ def main():
     save_dir = os.path.join(data_dir, 'handineye_calibration')
 
 
-    input(f"press anything to delete {save_dir} and continue")
-    shutil.rmtree(save_dir, ignore_errors=True)
-    os.makedirs(save_dir, exist_ok=True)
+    
     collect_handineye_calibration_data(save_dir)
 
 if __name__ == "__main__":

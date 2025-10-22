@@ -238,10 +238,12 @@ def main():
     SQUARE_SIZE_M = 0.020         # 2cm
     file_location = os.path.dirname(os.path.abspath(__file__))
     print(f"File location: {file_location}")
-    UR = True
+    UR = False
     experiment_str = "handineye_calibration"
     if UR:
         experiment_str += "_ur"
+    else:
+        experiment_str += "_h12"
     DATA_DIR = os.path.join(file_location, "data", experiment_str, "npzs")
     assert os.path.exists(DATA_DIR), f"Data dir not found: {DATA_DIR}"
     INTRINSICS_PATH = os.path.join(file_location, "data", experiment_str, "intrinsics_0.npz")

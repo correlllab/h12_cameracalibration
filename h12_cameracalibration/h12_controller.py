@@ -89,6 +89,7 @@ class ControllerNode(Node):
                 return H
 
             except (LookupException, ConnectivityException, ExtrapolationException) as e:
+                print(e)
                 last_exc = e
                 time.sleep(0.02)  # brief backoff
 
