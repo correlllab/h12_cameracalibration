@@ -6,9 +6,8 @@ from scipy.spatial.transform import Rotation as SciRot
 import random
 import matplotlib.pyplot as plt
 import os
-from utils import stack_T, visualize_r_t, load_intrinsics_npz, load_data, inv_SE3
-
-
+from utils import stack_H, visualize_r_t, load_intrinsics_npz, load_data, inv_SE3, predict_corners, visualize_corners
+import scipy.optimize as opt
 def get_error(
     R_base_gripper: List[np.ndarray],
     t_base_gripper: List[np.ndarray],
@@ -35,26 +34,15 @@ def get_error(
         rmse_px: reprojection RMSE [px]
     """
     # --- Build transforms ---
-    H_base_gripper = [stack_T(R, t) for R, t in zip(R_base_gripper, t_base_gripper)]
-    H_camera_target = [stack_T(R, t) for R, t in zip(R_camera_target, t_camera_target)]
-    H_gripper_camera = stack_T(R_gripper_camera, t_gripper_camera)
+    H_base_gripper = [stack_H(R, t) for R, t in zip(R_base_gripper, t_base_gripper)]
+    H_camera_target = [stack_H(R, t) for R, t in zip(R_camera_target, t_camera_target)]
+    H_gripper_camera = stack_H(R_gripper_camera, t_gripper_camera)
 
     # --- Target->Base per frame ---
-    H_base_target = [H_b_g @ H_gripper_camera @ H_c_t for H_b_g, H_c_t in zip(H_base_gripper, H_camera_target)]
-    # Rs = [H[:3,:3] for H in H_base_target]
-    # Ts = [H[:3,3] for H in H_base_target]
-    # visualize_r_t(Rs, np.stack(Ts), axis_len=0.05, title="Base->Target Poses for Error Computation", show=True)
-    R_ref = SciRot.from_matrix(np.stack([H[:3,:3] for H in H_base_target])).mean().as_matrix()
-    t_ref = np.mean([H[:3,3] for H in H_base_target], axis=0).reshape(3,1)
-    H_base_target_ref = stack_T(R_ref, t_ref)
-
-    # --- Prepare chessboard model points (Z=0 plane in target frame) ---
-    cols, rows = inner_corners
-    N = cols * rows
-    objp = np.zeros((N, 3), np.float32)
-    objp[:, :2] = np.mgrid[0:cols, 0:rows].T.reshape(-1, 2).astype(np.float32)
-    objp *= float(square_size_m)  # meters
-
+    H_base_target_list = [H_b_g @ H_gripper_camera @ H_c_t for H_b_g, H_c_t in zip(H_base_gripper, H_camera_target)]
+    R_ref = SciRot.from_matrix(np.stack([H[:3,:3] for H in H_base_target_list])).mean().as_matrix()
+    t_ref = np.mean([H[:3,3] for H in H_base_target_list], axis=0).reshape(3,1)
+    H_base_target_ref = stack_H(R_ref, t_ref)
 
     total_sq_error_px = 0.0
     total_corners = 0
@@ -62,88 +50,174 @@ def get_error(
     for H_b_g, corners in zip(H_base_gripper, corners_list):
         H_g_b = inv_SE3(H_b_g)
         pred_H_c_t = H_camera_gripper @ H_g_b @ H_base_target_ref
-        rvec, tvec = cv2.Rodrigues(pred_H_c_t[:3, :3])[0], pred_H_c_t[:3, 3].reshape(3, 1)
-
-        imgpts, _ = cv2.projectPoints(
-            objp,
-            rvec,
-            tvec,
-            K,
-            D
-        )  # imgpts: (N,1,2)
+        
+        imgpts = predict_corners(pred_H_c_t, inner_corners, square_size_m, K, D)  # (N,1,2)
 
         d = imgpts - corners  # (N,1,2)
         total_sq_error_px += float(np.sum(d ** 2))
         total_corners += corners.shape[0]
     rmse_px = float(np.sqrt(total_sq_error_px / total_corners))
 
-    return  rmse_px
+    return rmse_px
 
-def calibrate_handineye(data_dir, intrinsics_path, extrinsics_path, inner_corners, square_size_m):
+def display_quality(H_base_gripper_list, H_camera_target_list, H_gripper_camera, img_path_arr, corners_arr, inner_corners, square_size_m, K, D, name=""):
+    H_base_target_list = [H_base_gripper @ H_gripper_camera @ H_camera_target for H_base_gripper, H_camera_target in zip(H_base_gripper_list, H_camera_target_list)]
+    R_list = [T[:3, :3] for T in H_base_target_list]
+    t_stack = np.stack([T[:3, 3] for T in H_base_target_list], axis=0)
+    visualize_r_t(R_list, t_stack, axis_len=0.005, title=f"Base->Target Poses {name}")
+    R_ref = SciRot.from_matrix(np.stack([H[:3,:3] for H in H_base_target_list])).mean().as_matrix()
+    t_ref = np.mean([H[:3,3] for H in H_base_target_list], axis=0).reshape(3,1)
+    H_base_target_ref = stack_H(R_ref, t_ref)
+    pred_H_camera_target_list = [inv_SE3(H_gripper_camera) @ inv_SE3(H_b_g) @ H_base_target_ref for H_b_g in H_base_gripper_list]
+    pred_corners = [predict_corners(H_c_t, inner_corners, square_size_m, K, D) for H_c_t in pred_H_camera_target_list]
+    visualize_corners(img_path_arr, corners_arr, pred_corners, title=f"{name} Calibration")
+
+def handineye_residuals(x, H_base_gripper_list, corner_list, K, D, inner_corners, square_size_m):
+    R_gripper_camera = cv2.Rodrigues(x[0:3])[0]
+    t_gripper_camera = x[3:6].reshape(3,1)
+    H_gripper_camera = stack_H(R_gripper_camera, t_gripper_camera)
+    H_camera_gripper = inv_SE3(H_gripper_camera)
+
+
+    R_base_target_ref = cv2.Rodrigues(x[6:9])[0]
+    t_base_target_ref = x[9:12].reshape(3,1)
+    H_base_target_ref = stack_H(R_base_target_ref, t_base_target_ref)
+
+    H_gripper_base_list = [inv_SE3(H_b_g) for H_b_g in H_base_gripper_list]
+    residuals = []
+    for H_g_b, corners in zip(H_gripper_base_list, corner_list):
+        pred_H_c_t = H_camera_gripper @ H_g_b @ H_base_target_ref
+
+        imgpts = predict_corners(pred_H_c_t, inner_corners, square_size_m, K, D)  # (N,1,2)
+
+        d = imgpts - corners  # (N,1,2)
+        residuals.append(d.flatten())
+    return np.concatenate(residuals)
+
+def nonlinear_handeye_optimization(initial_H_gripper_camera, H_base_gripper_list, H_camera_target_list, corner_list, K, D, inner_corners, square_size_m):
+    iterations = 10
+    H_gripper_camera_opt = initial_H_gripper_camera.copy()
+    H_base_target_list = [H_b_g @ H_gripper_camera_opt @ H_c_t for H_b_g, H_c_t in zip(H_base_gripper_list, H_camera_target_list)]
+    R_ref = SciRot.from_matrix(np.stack([H[:3,:3] for H in H_base_target_list])).mean().as_matrix()
+    t_ref = np.mean([H[:3,3] for H in H_base_target_list], axis=0).reshape(3,1)
+    H_base_target_ref = stack_H(R_ref, t_ref)
+    for _ in range(iterations):
+
+        R_base_target_ref = H_base_target_ref[:3, :3]
+        t_base_target_ref = H_base_target_ref[:3, 3].reshape(3,1)
+        rvec_base_target_ref = cv2.Rodrigues(R_base_target_ref)[0].flatten()
+
+
+        R_gripper_camera_opt = H_gripper_camera_opt[:3, :3]
+        t_gripper_camera_opt = H_gripper_camera_opt[:3, 3].reshape(3,1)
+        rvec_gripper_camera_opt = cv2.Rodrigues(R_gripper_camera_opt)[0].flatten()
+        x0 = np.concatenate([rvec_gripper_camera_opt, t_gripper_camera_opt.flatten(), rvec_base_target_ref, t_base_target_ref.flatten()])
+
+        result = opt.least_squares(
+            handineye_residuals,
+            x0,
+            args=(H_base_gripper_list, corner_list, K, D, inner_corners, square_size_m),
+            method="trf",
+            loss="huber",           # or "soft_l1"
+            f_scale=1.0,            # ≈ expected pixel noise (start with 1–2 px)
+            x_scale="jac",          # auto parameter scaling
+            xtol=1e-10, ftol=1e-10, gtol=1e-10,
+            max_nfev=5000, verbose=0
+        )
+        x_opt = result.x
+        R_opt = cv2.Rodrigues(x_opt[0:3])[0]
+        t_opt = x_opt[3:6].reshape(3,1)
+        H_gripper_camera_opt = stack_H(R_opt, t_opt)
+
+        R_base_target_ref = cv2.Rodrigues(x_opt[6:9])[0]
+        t_base_target_ref = x_opt[9:12].reshape(3,1)
+        H_base_target_ref = stack_H(R_base_target_ref, t_base_target_ref)
+
+    return H_gripper_camera_opt
+
+
+
+def calibrate_handineye(data_dir, intrinsics_path, extrinsics_path, inner_corners, square_size_m, img_dir_path, display=True):
     # Load intrinsics
     K, D, distortion_model, width, height, R_rect, P = load_intrinsics_npz(intrinsics_path)
-    rs2optical = np.load(extrinsics_path, allow_pickle=True)["T_camerabase_cameraoptical"]
     print("[INFO] Intrinsics loaded:")
     print("K=\n", K)
     print("D=", D)
+    print("R_rect=\n", R_rect)
+    print("P=\n", P)
     print("distortion_model=", distortion_model)
     print(f"image size: {width} x {height}")
 
-    R_gripper2base, t_gripper2base, R_target2cam, t_target2cam, corners_arr = load_data(data_dir, K, D, inner_corners, square_size_m)
-    visualize_r_t(R_gripper2base, t_gripper2base)
-    best_T = np.eye(4)
+    print("beging loading data...")
+    R_base_gripper_list, t_base_gripper_list, R_cam_target_list, t_cam_target_list, corners_arr, img_path_arr = load_data(data_dir, K, D, inner_corners, square_size_m, img_dir_path)
+    print(f"[INFO] Loaded {len(R_base_gripper_list)} samples for hand-eye calibration.")
+    best_H = np.eye(4)
     best_error = float('inf')
-    ransac_iters = 20
+    ransac_iters = 200
     sample_n = 5
     for i in range(ransac_iters):
 
-        sample_idxs = random.sample(range(len(R_gripper2base)), sample_n)
-        R_gripper2base_sample = [R_gripper2base[i] for i in sample_idxs]
-        t_gripper2base_sample = [t_gripper2base[i] for i in sample_idxs]
-        R_target2cam_sample = [R_target2cam[i] for i in sample_idxs]
-        t_target2cam_sample = [t_target2cam[i] for i in sample_idxs]
+        sample_idxs = random.sample(range(len(R_base_gripper_list)), sample_n)
+        R_base_gripper_sample = [R_base_gripper_list[i] for i in sample_idxs]
+        t_base_gripper_sample = [t_base_gripper_list[i] for i in sample_idxs]
+        R_cam_target_sample = [R_cam_target_list[i] for i in sample_idxs]
+        t_cam_target_sample = [t_cam_target_list[i] for i in sample_idxs]
 
-        R_cam2gripper, t_cam2gripper = cv2.calibrateHandEye(
-            R_gripper2base_sample, t_gripper2base_sample,  # lists of absolutes are expected here
-            R_target2cam_sample,  t_target2cam_sample,
+        R_gripper_cam, t_gripper_cam = cv2.calibrateHandEye(
+            R_base_gripper_sample, t_base_gripper_sample,  # lists of absolutes are expected here
+            R_cam_target_sample,  t_cam_target_sample,
             method= cv2.CALIB_HAND_EYE_TSAI
         )
-        T_cam2gripper = np.eye(4)
-        T_cam2gripper[:3, :3] = R_cam2gripper
-        T_cam2gripper[:3, 3] = t_cam2gripper.flatten()
 
         error_px = get_error(
-            R_gripper2base, t_gripper2base,
-            R_target2cam,  t_target2cam,
-            R_cam2gripper, t_cam2gripper,
+            R_base_gripper_list, t_base_gripper_list,
+            R_cam_target_list,  t_cam_target_list,
+            R_gripper_cam, t_gripper_cam,
             corners_arr, K, D, inner_corners, square_size_m
         )
         print(f"{i}: {error_px=:.3f} px RMS")
         print("\n\n")
 
         if error_px < best_error:
+            H_gripper_cam = stack_H(R_gripper_cam, t_gripper_cam)
             best_error = error_px
-            best_T = T_cam2gripper.copy()
+            best_H = H_gripper_cam.copy()
 
     print(f"[RESULT] Best reprojection error: {best_error:.3f} px RMS")
+    print("Best H_gripper_camera:\n", best_H)
 
 
-    T_gripper2base = [stack_T(R, t) for R, t in zip(R_gripper2base, t_gripper2base)]
-    T_target2camera = [stack_T(R, t) for R, t in zip(R_target2cam, t_target2cam)]
-    T_camera2gripper = best_T
-    T_target2base = [T_g2b @ T_camera2gripper @ T_t2c for T_g2b, T_t2c in zip(T_gripper2base, T_target2camera)]
-    R_list = [T[:3, :3] for T in T_target2base]
-    t_stack = np.stack([T[:3, 3] for T in T_target2base], axis=0)
-    visualize_r_t(R_list, t_stack, axis_len=0.005, title="Base->Target Poses")
+    H_base_gripper_list = [stack_H(R, t) for R, t in zip(R_base_gripper_list, t_base_gripper_list)]
+    H_camera_target_list = [stack_H(R, t) for R, t in zip(R_cam_target_list, t_cam_target_list)]
+    if display:
+        H_gripper_camera = best_H
+        display_quality(H_base_gripper_list, H_camera_target_list, H_gripper_camera, img_path_arr, corners_arr, inner_corners, square_size_m, K, D, name="TSAI Calibration")
+        
+
+    # --- Nonlinear optimization ---
+    # print("[INFO] Starting nonlinear optimization...")
+    # best_H = nonlinear_handeye_optimization(best_H, H_base_gripper_list, H_camera_target_list, corners_arr, K, D, inner_corners, square_size_m)
+    # H_gripper_camera = best_H
+    # best_error = get_error(
+    #     R_base_gripper_list, t_base_gripper_list,
+    #     R_cam_target_list,  t_cam_target_list,
+    #     best_H[:3, :3], best_H[:3, 3].reshape(3,1),
+    #     corners_arr, K, D, inner_corners, square_size_m
+    # )
+    # print(f"[RESULT] After nonlinear optimization, reprojection error: {best_error:.3f} px RMS")
+    # if display:
+    #     H_gripper_camera = best_H
+    #     display_quality(H_base_gripper_list, H_camera_target_list, H_gripper_camera, img_path_arr, corners_arr, inner_corners, square_size_m, K, D, name="OPT Least Squares Calibration")
 
 
-    T_camOpt2gripper = best_T.copy()
+    H_gripper_cameraopt = best_H.copy()
+    H_camerabase_cameraoptical = np.load(extrinsics_path, allow_pickle=True)["T_camerabase_cameraoptical"]
 
-    T_cam2gripper = T_camOpt2gripper @ rs2optical
+    H_gripper_camerabase = H_gripper_cameraopt @ H_camerabase_cameraoptical #inv_SE3(H_camerabase_cameraoptical)
     
 
-    R_final = T_cam2gripper[:3, :3]
-    t_final = T_cam2gripper[:3,  3]
+    R_final = H_gripper_camerabase[:3, :3]
+    t_final = H_gripper_camerabase[:3,  3]
 
 
     # Output values
@@ -157,10 +231,9 @@ def calibrate_handineye(data_dir, intrinsics_path, extrinsics_path, inner_corner
     print(f"'{x}', '{y}', '{z}',")
     print(f"'{qx}', '{qy}', '{qz}', '{qw}',")
 
-    plt.show()
-    return T_camOpt2gripper
+    return H_gripper_cameraopt, best_error
 
-if __name__ == "__main__":
+def main():
     INNER_CORNERS = (10, 7)      # (cols, rows)
     SQUARE_SIZE_M = 0.020         # 2cm
     file_location = os.path.dirname(os.path.abspath(__file__))
@@ -171,4 +244,9 @@ if __name__ == "__main__":
     assert os.path.exists(INTRINSICS_PATH), f"Intrinsics file not found: {INTRINSICS_PATH}"
     EXTRINSICS_PATH = os.path.join(file_location, "data", "handineye_calibration", "extrinsics_0.npz")
     assert os.path.exists(EXTRINSICS_PATH), f"Extrinsics file not found: {EXTRINSICS_PATH}"
-    calibrate_handineye(DATA_DIR, INTRINSICS_PATH, EXTRINSICS_PATH, INNER_CORNERS, SQUARE_SIZE_M)
+    IMG_DIR_PATH = os.path.join(file_location, "data", "handineye_calibration", "raw")
+    assert os.path.exists(IMG_DIR_PATH), f"Image dir not found: {IMG_DIR_PATH}"
+    H_gripper_cameraopt, best_error = calibrate_handineye(DATA_DIR, INTRINSICS_PATH, EXTRINSICS_PATH, INNER_CORNERS, SQUARE_SIZE_M, IMG_DIR_PATH)
+    return H_gripper_cameraopt, best_error
+if __name__ == "__main__":
+    main()

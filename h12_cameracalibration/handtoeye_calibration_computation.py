@@ -5,48 +5,52 @@ import cv2
 from scipy.spatial.transform import Rotation as SciRot
 import random
 import matplotlib.pyplot as plt
+from utils import stack_H, visualize_r_t, load_intrinsics_npz, load_data, inv_SE3
 
 
-from utils import stack_T, visualize_r_t, load_intrinsics_npz, load_data, inv_SE3
+def get_error(H_cam_base, H_cam_target_list, H_base_gripper_list):
+    
+    return total_error / n
 
 
-def calibrate_handtoeye(data_dir, intrinsics_path, extrinsics_path, inner_corners, square_size_m):
+
+def calibrate_handtoeye(data_dir, intrinsics_path, extrinsics_path, inner_corners, square_size_m, img_dir_path, display = False):
     # Load intrinsics
     K, D, distortion_model, width, height, R_rect, P = load_intrinsics_npz(intrinsics_path)
-    rs2optical = np.load(extrinsics_path, allow_pickle=True)["T_camerabase_cameraoptical"]
     print("[INFO] Intrinsics loaded:")
     print("K=\n", K)
     print("D=", D)
     print("distortion_model=", distortion_model)
     print(f"image size: {width} x {height}")
-    R_gripper2base, t_gripper2base, R_target2cam, t_target2cam, corners_arr = load_data(data_dir, K, D, inner_corners, square_size_m)
-    visualize_r_t(R_target2cam, t_target2cam)
-    R_base2gripper = []
-    t_base2gripper = []
-    for R, t in zip(R_gripper2base, t_gripper2base):
-        T_gripper2base = stack_T(R, t)
-        T_base2gripper = inv_SE3(T_gripper2base)
-        R_base2gripper.append(T_base2gripper[:3, :3])
-        t_base2gripper.append(T_base2gripper[:3, 3].reshape(3,1))
-       
-    R_base2cam, t_base2cam = cv2.calibrateHandEye(
-        R_base2gripper, t_base2gripper,
-        R_target2cam,  t_target2cam,
+    R_base_gripper_list, t_base_gripper_list, R_cam_target_list, t_cam_target_list, corners_arr, img_path_arr = load_data(data_dir, K, D, inner_corners, square_size_m, img_dir_path)
+
+    # visualize_r_t(R_target2cam, t_target2cam)
+    R_gripper_base_list = []
+    t_gripper_base_list = []
+    for R_base_gripper, t_base_gripper in zip(R_base_gripper_list, t_base_gripper_list):
+        H_base_gripper = stack_H(R_base_gripper, t_base_gripper)
+        H_gripper_base = inv_SE3(H_base_gripper)
+        R_gripper_base_list.append(H_gripper_base[:3, :3])
+        t_gripper_base_list.append(H_gripper_base[:3, 3].reshape(3,1))
+
+    R_cam_base, t_cam_base = cv2.calibrateHandEye(
+        R_gripper_base_list, t_gripper_base_list,
+        R_cam_target_list,  t_cam_target_list,
         method=cv2.CALIB_HAND_EYE_TSAI
     )
-    T_base2cam = np.eye(4)
-    T_base2cam[:3, :3] = R_base2cam
-    T_base2cam[:3, 3] = t_base2cam.flatten()
+    H_cam_base = stack_H(R_cam_base, t_cam_base)
 
-    visualize_r_t([R_base2cam], [t_base2cam], title="Base to Camera Pose")
+    if display:
+        visualize_r_t([R_cam_base], [t_cam_base], title="Base to Camera Pose")
 
-    T_base2camOpt = T_base2cam.copy()
+    H_camerabase_cameraoptical = np.load(extrinsics_path, allow_pickle=True)["T_camerabase_cameraoptical"]
 
-    T_base2cam = T_base2camOpt @ rs2optical
-    
+    H_camopt_base = H_cam_base.copy()
 
-    R_final = T_base2cam[:3, :3]
-    t_final = T_base2cam[:3,  3]
+    # H_cambase_base = H_camerabase_cameraoptical @ H_camopt_base #inv_SE3(H_camerabase_cameraoptical)
+    H_cambase_base = H_camopt_base @ H_camerabase_cameraoptical 
+    R_final = H_cambase_base[:3, :3]
+    t_final = H_cambase_base[:3,  3]
 
 
     # Output values
@@ -60,12 +64,13 @@ def calibrate_handtoeye(data_dir, intrinsics_path, extrinsics_path, inner_corner
     print(f"'{x}', '{y}', '{z}',")
     print(f"'{qx}', '{qy}', '{qz}', '{qw}',")
 
-    plt.show()
-    return T_base2cam
+    # plt.show()
+    error = 0.0  # --- IGNORE ---
+    return H_camopt_base, error
 
-if __name__ == "__main__":
+def main():
     INNER_CORNERS = (10, 7)      # (cols, rows)
-    SQUARE_SIZE_M = 0.020         # 2cm
+    SQUARE_SIZE_M = 0.010         # 1cm
     file_location = os.path.dirname(os.path.abspath(__file__))
     print(f"File location: {file_location}")
     DATA_DIR = os.path.join(file_location, "data", "handtoeye_calibration", "npzs")
@@ -74,4 +79,9 @@ if __name__ == "__main__":
     assert os.path.exists(INTRINSICS_PATH), f"Intrinsics file not found: {INTRINSICS_PATH}"
     EXTRINSICS_PATH = os.path.join(file_location, "data", "handtoeye_calibration", "extrinsics_0.npz")
     assert os.path.exists(EXTRINSICS_PATH), f"Extrinsics file not found: {EXTRINSICS_PATH}"
-    calibrate_handtoeye(DATA_DIR, INTRINSICS_PATH, EXTRINSICS_PATH, INNER_CORNERS, SQUARE_SIZE_M)
+    IMG_DIR_PATH = os.path.join(file_location, "data", "handtoeye_calibration", "raw")
+    assert os.path.exists(IMG_DIR_PATH), f"Image dir not found: {IMG_DIR_PATH}"
+    return calibrate_handtoeye(DATA_DIR, INTRINSICS_PATH, EXTRINSICS_PATH, INNER_CORNERS, SQUARE_SIZE_M, IMG_DIR_PATH)
+
+if __name__ == "__main__":
+    main()

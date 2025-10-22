@@ -5,8 +5,10 @@ import random
 import cv2
 import matplotlib.pyplot as plt
 import time
+import threading
 # ----------------------- SAVING utilities -----------------------
-ready_to_save = False
+save_request = threading.Event()
+save_done = threading.Event()
 def save_camera_info(camera_info, filepath):
     """
     Convert a ROS2 CameraInfo message into a NumPy .npz file.
@@ -43,9 +45,8 @@ def save_camera_info(camera_info, filepath):
         roi_do_rectify=camera_info.roi.do_rectify,
     )
 def get_corners(rgb, target_dims):
-    flags = cv2.CALIB_CB_ADAPTIVE_THRESH | cv2.CALIB_CB_NORMALIZE_IMAGE
     gray = cv2.cvtColor(rgb, cv2.COLOR_BGR2GRAY)
-    ret, corners = cv2.findChessboardCorners(gray, target_dims, flags)
+    ret, corners = cv2.findChessboardCornersSB(gray, target_dims, flags=cv2.CALIB_CB_NORMALIZE_IMAGE)
     if ret:
         criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 1e-4)
         corners = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
@@ -53,8 +54,9 @@ def get_corners(rgb, target_dims):
 def vis_and_save(controller_node, camera_nodes, ee_frame, camera_base_frames, camera_optical_frames, target_dims, save_dir):
     print("in vis and save")
     save_count = 0
-    global ready_to_save
-    last_t = np.eye(4)
+    global save_request
+    global save_done
+    last_H = np.eye(4)
     
     assert len(camera_nodes) == len(camera_base_frames) == len(camera_optical_frames)
     intrinsics_made_list = [False] * len(camera_nodes)
@@ -85,17 +87,16 @@ def vis_and_save(controller_node, camera_nodes, ee_frame, camera_base_frames, ca
                 print(f"Saved intrinsics to {intrinsics_paths[i]}")
                 intrinsics_made_list[i] = True
             if not extrinsics_made:
-                T = controller_node.get_tf(source_frame=camera_base_frames[i], target_frame=camera_optical_frames[i], timeout=1.0)
-                if T is not None:
-                    np.savez(extrinsics_paths[i], T_camerabase_cameraoptical=T)
+                H = controller_node.get_tf(source_frame=camera_base_frames[i], target_frame=camera_optical_frames[i], timeout=1.0)
+                if H is not None:
+                    np.savez(extrinsics_paths[i], H_cameraoptical_camerabase=H)
                     extrinsics_made_list[i] = True
 
-        ee_transform = controller_node.get_tf(source_frame=ee_frame, target_frame="pelvis", timeout=1.0)
-        d_T = float('inf')
-        if ee_transform is not None:
-            d_T = np.linalg.norm(ee_transform - last_t)
-            last_t = ee_transform
-
+        H_base_ee = controller_node.get_tf(source_frame=ee_frame, target_frame="pelvis", timeout=1.0)
+        d_H = float('inf')
+        if H_base_ee is not None:
+            d_H = np.linalg.norm(H_base_ee - last_H)
+            last_H = H_base_ee
 
         all_rgbs_good = True
         for rgb in rgb_list:
@@ -105,7 +106,7 @@ def vis_and_save(controller_node, camera_nodes, ee_frame, camera_base_frames, ca
         if all_rgbs_good:
             display_imgs = [rgb.copy() for rgb in rgb_list]
             for display_img in display_imgs:
-                cv2.putText(display_img, f"{d_T:0.4f}",(10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0,255,0), 1)
+                cv2.putText(display_img, f"{d_H:0.4f}",(10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0,255,0), 1)
 
 
             corner_results = [get_corners(rgb, target_dims) for rgb in rgb_list]
@@ -116,16 +117,16 @@ def vis_and_save(controller_node, camera_nodes, ee_frame, camera_base_frames, ca
                 else:
                     cv2.drawChessboardCorners(display_imgs[i], target_dims, corners, success)
 
-            
-            if all_corners_found and ready_to_save and d_T < 0.001:
+            save_requested = save_request.is_set()
+            if all_corners_found and save_requested and d_H < 0.0001:
                 for i in range(len(camera_nodes)):
                     cv2.imwrite(os.path.join(raw_save_dir, f"calib_{save_count}_cam_{i}.png"), rgb_list[i])
                     cv2.imwrite(os.path.join(annotated_save_dir, f"calib_{save_count}_cam_{i}.png"), display_imgs[i])
-                    
-                    np.savez(os.path.join(npz_save_dir, f"calib_{save_count}_cam_{i}.npz"), corners=corner_results[i][1], T_base_ee=ee_transform)
+                    np.savez(os.path.join(npz_save_dir, f"calib_{save_count}_cam_{i}.npz"), corners=corner_results[i][1], H_base_ee=H_base_ee)
 
                 save_count += 1
-                ready_to_save = False
+                save_request.clear()
+                save_done.set()
             for i in range(len(display_imgs)):
                 display_img = cv2.resize(display_imgs[i], (640, 480), interpolation = cv2.INTER_AREA)
                 cv2.imshow(f"rgb_camera_{i}", display_img)
@@ -138,27 +139,31 @@ def vis_and_save(controller_node, camera_nodes, ee_frame, camera_base_frames, ca
     cv2.destroyAllWindows()
 def collect_control_loop(x,y,z,roll,target, controller_node, pose_func, use_right = False):
     saved = False
-    global ready_to_save
+    global save_request
+    global save_done
     while not saved:
-        T = pose_func(x, y, z, roll, target)
+        H = pose_func(x, y, z, roll, target)
         # behavior_node.go_home(duration=5)
         print(f"\n\nMoving to x={x}, y={y}, z={z}, roll={roll}")
         print(f"Target: {target}")
         if use_right:
-            controller_node.send_arm_goal(right_mat=T, duration=5)
+            controller_node.send_arm_goal(right_mat=H, duration=5)
         else:
-            controller_node.send_arm_goal(left_mat=T, duration=5)
+            controller_node.send_arm_goal(left_mat=H, duration=5)
 
         cmd = input("Enter x y z r or dx dy dz dr or 'q' to quit, s to save, h for home, k to skip, tx, ty,tz to move the target point: ")
         if cmd.strip().lower() in ['q', 'quit', 'exit']:
             break
         if cmd == "s":
-            ready_to_save = True
-            n_tries = 0
-            while ready_to_save and n_tries < 5: #wait for other thread to set it back to False
-                time.sleep(0.1)
-                n_tries+=1
-            saved = True
+            save_done.clear()
+            save_request.set()
+            ok = save_done.wait(timeout=3.0)
+            save_request.clear()
+            if ok:
+                print("[OK] Saved sample.")
+                saved = True
+            else:
+                print("[WARN] Save failed (no corners or robot moved). Try again.")
             continue
             
         if cmd == "k":
@@ -200,23 +205,43 @@ def collect_control_loop(x,y,z,roll,target, controller_node, pose_func, use_righ
             if 'r' in cmd:
                 roll = value
     return x,y,z, roll, target
+def predict_corners(H_c_t, inner_corners, square_size_m, K, D):
+    objp = get_target_points(inner_corners, square_size_m)
+    rvec, tvec = cv2.Rodrigues(H_c_t[:3, :3])[0], H_c_t[:3, 3].reshape(3, 1)
 
+    imgpts, _ = cv2.projectPoints(
+        objp,
+        rvec,
+        tvec,
+        K,
+        D
+    )  # imgpts: (N,1,2)
+    return imgpts
 # ----------------------- SE3 utilities -----------------------
-def stack_T(R, t):
-    T = np.eye(4)
-    T[:3,:3] = R
-    T[:3, 3] = t.reshape(3)
-    return T
-def inv_SE3(T):
+def stack_H(R, t):
+    H = np.eye(4)
+    H[:3,:3] = R
+    H[:3, 3] = t.reshape(3)
+    return H
+def inv_SE3(H):
     """Inverse of a rigid homogeneous transform (rotation+translation)."""
-    R = T[:3,:3]
-    t = T[:3, 3]
-    Ti = np.eye(4)
+    R = H[:3,:3]
+    t = H[:3, 3]
+    Hi = np.eye(4)
     Rt = R.T
-    Ti[:3,:3] = Rt
-    Ti[:3, 3] = -Rt @ t
-    return Ti
+    Hi[:3,:3] = Rt
+    Hi[:3, 3] = -Rt @ t
+    return Hi
+def get_target_points(target_dims, square_size_m):
+    # --- Build the target model points (board frame, Z=0 plane) ---
+    cols, rows = target_dims
+    N = cols * rows
+    objp = np.zeros((N, 3), np.float32)
+    objp[:, :2] = np.mgrid[0:cols, 0:rows].T.reshape(-1, 2)
+    # print(f"[DEBUG] objp:\n{objp}")
 
+    objp *= float(square_size_m)
+    return objp
 # ----------------------- Visualization loaders -----------------------
 def visualize_r_t(R_list, t_list, axis_len=0.1, draw_world=True, connect_trajectory=False, title="", show=True):
     """
@@ -290,7 +315,6 @@ def visualize_r_t(R_list, t_list, axis_len=0.1, draw_world=True, connect_traject
     if show:
         plt.show()
     return fig, ax
-
 def _draw_frame(ax, t, R, length=0.1, label=None):
     """
     Draw a coordinate frame at position t with rotation R.
@@ -314,7 +338,6 @@ def _draw_frame(ax, t, R, length=0.1, label=None):
 
     if label is not None:
         ax.text(o[0], o[1], o[2], label)
-
 def _set_axes_equal(ax, points):
     """
     Make 3D plot axes have equal scale so that spheres look like spheres.
@@ -335,6 +358,23 @@ def _set_axes_equal(ax, points):
     ax.set_ylim(center[1] - radius/2, center[1] + radius/2)
     ax.set_zlim(center[2] - radius/2, center[2] + radius/2)
 
+def visualize_corners(imgpath_list, true_corner_list, pred_corner_list, title="", show=True):
+    assert len(imgpath_list) == len(true_corner_list) == len(pred_corner_list)
+    sidelength = np.ceil(np.sqrt(len(imgpath_list)))
+    fig, axes = plt.subplots(int(sidelength), int(sidelength), figsize=(30, 30))
+    axes = axes.flatten()
+    for img_path, true_corners, pred_corners, ax in zip(imgpath_list, true_corner_list, pred_corner_list, axes):
+        img = cv2.imread(img_path)
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        ax.imshow(img_rgb)
+        ax.scatter(true_corners[:,0,0], true_corners[:,0,1], c='g', marker='o', label='True Corners')
+        ax.scatter(pred_corners[:,0,0], pred_corners[:,0,1], c='r', marker='x', label='Predicted Corners')
+        ax.axis('off')
+        ax.legend()
+    fig.tight_layout()
+    fig.suptitle(title, fontsize=20)
+    if show:
+        plt.show()
 
 # ----------------------- Data-specific loaders -----------------------
 def load_intrinsics_npz(path: str):
@@ -348,7 +388,7 @@ def load_intrinsics_npz(path: str):
     P = d["P"].astype(float) if "P" in d else None
     return K, D, distortion_model, width, height, R, P
 
-def target2cam_from_corners(corners, K, D, target_dims, square_size_m):
+def H_cam_target_from_corners(corners, K, D, target_dims, square_size_m):
     """
     Estimate the 4x4 target->camera transform using solvePnP.
 
@@ -360,36 +400,27 @@ def target2cam_from_corners(corners, K, D, target_dims, square_size_m):
         
 
     Returns:
-        T_target2cam : (4,4) homogeneous transform
+        H_cam_target : (4,4) homogeneous transform
     """
   
-    # --- Build the target model points (board frame, Z=0 plane) ---
-    cols, rows = target_dims
-    N = cols * rows
-    assert corners.shape[0] == N, f"Expected {N} corners, got {corners.shape[0]}"
-    objp = np.zeros((N, 3), np.float32)
-    objp[:, :2] = np.mgrid[0:cols, 0:rows].T.reshape(-1, 2)
-    # print(f"[DEBUG] objp:\n{objp}")
-
-    objp *= float(square_size_m)
-
-
+    
+    objp = get_target_points(target_dims, square_size_m)
     # --- Prepare image points (N,2) float32 ---
     imgp = corners.reshape(-1, 2).astype(np.float32)
     # print(f"[DEBUG] imgp:\n{imgp}")
 
     # --- Solve PnP ---
     ok, rvec, tvec = cv2.solvePnP(objp, imgp, K, D, flags=cv2.SOLVEPNP_IPPE)
+    R = cv2.Rodrigues(rvec)[0]
+    H_c_t = stack_H(R, tvec)
 
     if not ok:
         raise RuntimeError("solvePnP failed to find a pose for the given corners.")
     
-    corners_reproj, _ = cv2.projectPoints(
-        objp, rvec, tvec, K, D
-    )
+    predicted_corners = predict_corners(H_c_t, target_dims, square_size_m, K, D)
 
     # Flatten to (N, 2)
-    diff = (corners_reproj.reshape(-1, 2) - corners.reshape(-1, 2)).astype(np.float64)
+    diff = (predicted_corners.reshape(-1, 2) - corners.reshape(-1, 2)).astype(np.float64)
 
     # Per-corner radial errors (L2 per point)
     per_corner = np.linalg.norm(diff, axis=1)
@@ -398,34 +429,37 @@ def target2cam_from_corners(corners, K, D, target_dims, square_size_m):
     rmse = float(np.sqrt(np.mean(per_corner**2)))
 
 
-    R_target2cam, _ = cv2.Rodrigues(rvec)
-    t_target2cam = tvec.reshape(3,1)
+    R_cam_target, _ = cv2.Rodrigues(rvec)
+    t_cam_target = tvec.reshape(3,1)
 
     # --- Pack into 4x4 ---
-    T_target2cam = stack_T(R_target2cam, t_target2cam)
+    H_cam_target = stack_H(R_cam_target, t_cam_target)
+        
 
-    return T_target2cam, rmse
 
-def load_data(npz_dir, K, D, inner_corners, square_size_m):
+    return H_cam_target, rmse
+
+def load_data(npz_dir, K, D, inner_corners, square_size_m, img_dir, display = True):
     # Gather samples
     npz_files = sorted(glob.glob(os.path.join(npz_dir, "*.npz")))
     if not npz_files:
         raise FileNotFoundError(f"No NPZ files found in {npz_dir}")
     random.shuffle(npz_files)
     print(f"[INFO] Found {len(npz_files)} NPZ files in {npz_dir}")
-    R_gripper2base = []
-    t_gripper2base = []
-    R_target2cam = []
-    t_target2cam = []
+    R_base_gripper = []
+    t_base_gripper = []
+    R_cam_target = []
+    t_cam_target = []
     corners_arr = []
     rejected = 0
+    img_path_arr = []
 
     for f in npz_files:
         data = np.load(f)
         corners = data["corners"]
         print(" -", os.path.basename(f))
-        T_target2cam, error = target2cam_from_corners(corners, K, D, inner_corners, square_size_m)
-        # T_target2cam = np.linalg.inv(T_target2cam)
+        H_cam_target, error = H_cam_target_from_corners(corners, K, D, inner_corners, square_size_m)
+        # H_cam_target = np.linalg.inv(H_cam_target)
         print(f"  Reprojection error rmse: {error:.3f} px")
         if error > 1.5:
             print(f"  [WARNING] High reprojection error {error:.3f} px, rejecting this sample.")
@@ -434,19 +468,32 @@ def load_data(npz_dir, K, D, inner_corners, square_size_m):
         print()
         corners_arr.append(corners)
 
-        R_target2cam.append(T_target2cam[:3, :3])
-        t_target2cam.append(T_target2cam[:3, 3].reshape(3,1))
-        T_gripper2base = data["T_base_ee"]
-        # T_gripper2base = np.linalg.inv(T_gripper2base)
-        R_gripper2base.append(T_gripper2base[:3, :3])
-        t_gripper2base.append(T_gripper2base[:3, 3].reshape(3,1))
+        R_cam_target.append(H_cam_target[:3, :3])
+        t_cam_target.append(H_cam_target[:3, 3].reshape(3,1))
+        H_base_ee = data["T_base_ee"]
+        # H_base_ee = np.linalg.inv(H_base_ee)
+        R_base_gripper.append(H_base_ee[:3, :3])
+        t_base_gripper.append(H_base_ee[:3, 3].reshape(3,1))
 
+        img_path = os.path.join(img_dir, os.path.basename(f).replace('.npz', '.png'))
+        assert os.path.exists(img_path), f"Image file not found: {img_path}"
+        img_path_arr.append(img_path)
         
     print(f"[INFO] Rejected {rejected} samples due to high reprojection error.")
-    assert len(R_gripper2base) == len(t_gripper2base) == len(R_target2cam) == len(t_target2cam)
-    print(f"[INFO] Loaded {len(R_gripper2base)} samples")
-    print(f"[INFO] Example shape: {R_gripper2base[0].shape=}, {t_gripper2base[0].shape=} {R_target2cam[0].shape=}, {t_target2cam[0].shape=}")
+    assert len(R_base_gripper) == len(t_base_gripper) == len(R_cam_target) == len(t_cam_target)
+    print(f"[INFO] Loaded {len(R_base_gripper)} samples")
+    print(f"[INFO] Example shape: {R_base_gripper[0].shape=}, {t_base_gripper[0].shape=} {R_cam_target[0].shape=}, {t_cam_target[0].shape=}")
 
-    return (R_gripper2base, t_gripper2base,
-            R_target2cam, t_target2cam,
-            corners_arr)
+    if display:
+        visualize_r_t(R_base_gripper, t_base_gripper, title="Loaded Base to Gripper Poses", show = False)
+        visualize_r_t(R_cam_target, t_cam_target, title="Loaded Camera to Target Poses", show = False)
+        visualize_corners(
+            img_path_arr,
+            corners_arr,
+            [predict_corners(stack_H(R, t), inner_corners, square_size_m, K, D) for R, t in zip(R_cam_target, t_cam_target)],
+            title="PNP reprojection"
+        )
+
+    return (R_base_gripper, t_base_gripper,
+            R_cam_target, t_cam_target,
+            corners_arr, img_path_arr)

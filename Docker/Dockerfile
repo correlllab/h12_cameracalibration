@@ -77,6 +77,15 @@ RUN git clone https://github.com/unitreerobotics/unitree_ros2.git
 WORKDIR /root/unitree_ros2/cyclonedds_ws
 RUN apt-get update && apt-get install -y ros-humble-rosidl-generator-dds-idl
 RUN bash -c "source /opt/ros/humble/setup.sh && colcon build"
+# WORKDIR /root
+# RUN git clone https://github.com/correlllab/h12_ros2_controller.git
+# WORKDIR /root/h12_ros2_controller
+# RUN pip install -e .
+# WORKDIR /root
+# RUN git clone https://github.com/unitreerobotics/unitree_sdk2_python.git
+# WORKDIR /root/unitree_sdk2_python
+# RUN pip install -e .
+
 WORKDIR /ros2_ws
 # Entry point script to source and conditionally build
 RUN echo '#!/usr/bin/env bash' > /ros_entrypoint.sh && \

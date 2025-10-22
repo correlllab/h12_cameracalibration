@@ -10,6 +10,9 @@ from tf2_ros import Buffer, TransformListener, LookupException, ConnectivityExce
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 import threading
+# from unitree_sdk2py.core.channel import ChannelFactoryInitialize
+# from h12_ros2_controller.core.robot_model import RobotModel
+
 
 class ControllerNode(Node):
     def __init__(self):
@@ -45,6 +48,11 @@ class ControllerNode(Node):
         self.go_home()
 
 
+        # ChannelFactoryInitialize()
+        # self.robotmodel = RobotModel('/root/h12_ros2_controller/assets/h1_2/h1_2.urdf')
+        # self.robotmodel.init_subscriber()
+
+
     def get_tf(self, source_frame: str, target_frame: str, timeout: float = 1.0):
         """
         Look up the transform from `source_frame` --> `target_frame`.
@@ -61,7 +69,6 @@ class ControllerNode(Node):
         """
         deadline = time.time() + timeout
         last_exc = None
-
         while time.time() < deadline and rclpy.ok():
             try:
                 # Empty Time() = "latest available"
@@ -74,10 +81,12 @@ class ControllerNode(Node):
                 t = ts.transform.translation
                 q = ts.transform.rotation
                 Rm = R.from_quat([q.x, q.y, q.z, q.w]).as_matrix()
-                T = np.eye(4, dtype=float)
-                T[:3, :3] = Rm
-                T[:3,  3] = [t.x, t.y, t.z]
-                return T
+                H = np.eye(4, dtype=float)
+                H[:3, :3] = Rm
+                H[:3,  3] = [t.x, t.y, t.z]
+
+
+                return H
 
             except (LookupException, ConnectivityException, ExtrapolationException) as e:
                 last_exc = e
@@ -85,6 +94,11 @@ class ControllerNode(Node):
 
         #raise RuntimeError(f"TF {source_frame} -> {target_frame} not available within {timeout:.2f}s: {last_exc}")
         return None
+    
+    # def get_frame_in_pelvis(self, frame_name: str):
+    #     self.robotmodel.update_kinematics()
+    #     tf = self.robotmodel.get_frame_transformation(frame_name)
+    #     return tf
 
 
     def go_home(self, duration=10):
@@ -169,4 +183,14 @@ class ControllerNode(Node):
 def main():
     controller = ControllerNode()
     controller.go_home()
+
+    # yt_H = controller.get_frame_in_pelvis('left_wrist_yaw_link')
+    # ros_H = controller.get_tf(source_frame='left_wrist_yaw_link', target_frame="pelvis")
+    # print("From Robot Model:")
+    # print(yt_H)
+    # print("From ROS:")
+    # print(ros_H)
+    # diff = yt_H - ros_H
+    # print("Difference:")
+    # print(diff)
     controller.close()
