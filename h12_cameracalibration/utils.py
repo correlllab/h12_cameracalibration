@@ -470,7 +470,7 @@ def load_data(npz_dir, K, D, inner_corners, square_size_m, img_dir, display = Tr
 
         R_cam_target.append(H_cam_target[:3, :3])
         t_cam_target.append(H_cam_target[:3, 3].reshape(3,1))
-        H_base_ee = data["T_base_ee"]
+        H_base_ee = data["H_base_ee"]
         # H_base_ee = np.linalg.inv(H_base_ee)
         R_base_gripper.append(H_base_ee[:3, :3])
         t_base_gripper.append(H_base_ee[:3, 3].reshape(3,1))

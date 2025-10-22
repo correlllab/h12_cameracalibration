@@ -194,7 +194,7 @@ def calibrate_handineye(data_dir, intrinsics_path, extrinsics_path, inner_corner
         display_quality(H_base_gripper_list, H_camera_target_list, H_gripper_camera, img_path_arr, corners_arr, inner_corners, square_size_m, K, D, name="TSAI Calibration")
         
 
-    # --- Nonlinear optimization ---
+    # # --- Nonlinear optimization ---
     # print("[INFO] Starting nonlinear optimization...")
     # best_H = nonlinear_handeye_optimization(best_H, H_base_gripper_list, H_camera_target_list, corners_arr, K, D, inner_corners, square_size_m)
     # H_gripper_camera = best_H
@@ -211,9 +211,9 @@ def calibrate_handineye(data_dir, intrinsics_path, extrinsics_path, inner_corner
 
 
     H_gripper_cameraopt = best_H.copy()
-    H_camerabase_cameraoptical = np.load(extrinsics_path, allow_pickle=True)["T_camerabase_cameraoptical"]
+    H_camerabase_cameraoptical = np.load(extrinsics_path, allow_pickle=True)["H_cameraoptical_camerabase"]
 
-    H_gripper_camerabase = H_gripper_cameraopt @ H_camerabase_cameraoptical #inv_SE3(H_camerabase_cameraoptical)
+    H_gripper_camerabase = H_gripper_cameraopt @ inv_SE3(H_camerabase_cameraoptical)
     
 
     R_final = H_gripper_camerabase[:3, :3]
@@ -238,13 +238,17 @@ def main():
     SQUARE_SIZE_M = 0.020         # 2cm
     file_location = os.path.dirname(os.path.abspath(__file__))
     print(f"File location: {file_location}")
-    DATA_DIR = os.path.join(file_location, "data", "handineye_calibration", "npzs")
+    UR = True
+    experiment_str = "handineye_calibration"
+    if UR:
+        experiment_str += "_ur"
+    DATA_DIR = os.path.join(file_location, "data", experiment_str, "npzs")
     assert os.path.exists(DATA_DIR), f"Data dir not found: {DATA_DIR}"
-    INTRINSICS_PATH = os.path.join(file_location, "data", "handineye_calibration", "intrinsics_0.npz")
+    INTRINSICS_PATH = os.path.join(file_location, "data", experiment_str, "intrinsics_0.npz")
     assert os.path.exists(INTRINSICS_PATH), f"Intrinsics file not found: {INTRINSICS_PATH}"
-    EXTRINSICS_PATH = os.path.join(file_location, "data", "handineye_calibration", "extrinsics_0.npz")
+    EXTRINSICS_PATH = os.path.join(file_location, "data", experiment_str, "extrinsics_0.npz")
     assert os.path.exists(EXTRINSICS_PATH), f"Extrinsics file not found: {EXTRINSICS_PATH}"
-    IMG_DIR_PATH = os.path.join(file_location, "data", "handineye_calibration", "raw")
+    IMG_DIR_PATH = os.path.join(file_location, "data", experiment_str, "raw")
     assert os.path.exists(IMG_DIR_PATH), f"Image dir not found: {IMG_DIR_PATH}"
     H_gripper_cameraopt, best_error = calibrate_handineye(DATA_DIR, INTRINSICS_PATH, EXTRINSICS_PATH, INNER_CORNERS, SQUARE_SIZE_M, IMG_DIR_PATH)
     return H_gripper_cameraopt, best_error
