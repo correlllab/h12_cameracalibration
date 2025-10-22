@@ -48,6 +48,7 @@ class CameraSubscriber(Node):
         self._spin_thread.start()
 
     def _rgb_callback(self, msg: CompressedImage):
+        # print("rgb callback triggered")
         try:
             rgb_img = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding='bgr8')
             
@@ -61,6 +62,7 @@ class CameraSubscriber(Node):
 
 
     def _info_callback(self, msg: CameraInfo):
+        # print("info callback triggered")
         with self._lock:
             # print("[REALSENSE SUB info] lock aquired")
             self.latest_info = msg

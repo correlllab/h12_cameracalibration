@@ -9,7 +9,7 @@ file_dir = os.path.dirname(os.path.realpath(__file__))
 if file_dir not in sys.path:
     sys.path.insert(0, file_dir)
 
-from controller import ControllerNode
+from ur_controller import ControllerNode
 from camerainterface import CameraSubscriber
 import threading
 from utils import vis_and_save, collect_control_loop, visualize_r_t
@@ -180,8 +180,12 @@ def get_handineye_pose_matrix(x,y,z,roll, target):
 
 def collect_handineye_calibration_data(save_dir):
     controller_node = ControllerNode()
-    camera_node = CameraSubscriber("/realsense/left_hand")
-    vis_thread = threading.Thread(target=vis_and_save, args=(controller_node, [camera_node], "left_wrist_yaw_link", ["left_hand_link"], ["left_hand_color_optical_frame"], (10, 7), save_dir))
+    camera_node = CameraSubscriber("/camera/camera")
+    base_frame = "UR20255601087_world"#"pelvis"
+    ee_frame = "UR20255601087_tcp"#"left_wrist_yaw_link"
+    cam_frame = "camera_link" #left_hand_link
+    camera_optical_frame = "camera_color_optical_frame" #left_hand_color_optical_frame
+    vis_thread = threading.Thread(target=vis_and_save, args=(controller_node, [camera_node], ee_frame, base_frame, [cam_frame], [camera_optical_frame], (10, 7), save_dir))
     vis_thread.start()
     time.sleep(1)
     print()
@@ -208,7 +212,7 @@ def collect_handineye_calibration_data(save_dir):
 def main():
     data_dir = os.path.join(file_dir, 'data')
     os.makedirs(data_dir, exist_ok=True)
-    save_dir = os.path.join(data_dir, 'handineye_calibration')
+    save_dir = os.path.join(data_dir, 'handineye_calibration_ur')
 
 
     input(f"press anything to delete {save_dir} and continue")

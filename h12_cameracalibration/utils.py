@@ -51,7 +51,7 @@ def get_corners(rgb, target_dims):
         criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 1e-4)
         corners = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
     return ret, corners
-def vis_and_save(controller_node, camera_nodes, ee_frame, camera_base_frames, camera_optical_frames, target_dims, save_dir):
+def vis_and_save(controller_node, camera_nodes, ee_frame, base_frame, camera_base_frames, camera_optical_frames, target_dims, save_dir):
     print("in vis and save")
     save_count = 0
     global save_request
@@ -92,7 +92,7 @@ def vis_and_save(controller_node, camera_nodes, ee_frame, camera_base_frames, ca
                     np.savez(extrinsics_paths[i], H_cameraoptical_camerabase=H)
                     extrinsics_made_list[i] = True
 
-        H_base_ee = controller_node.get_tf(source_frame=ee_frame, target_frame="pelvis", timeout=1.0)
+        H_base_ee = controller_node.get_tf(source_frame=ee_frame, target_frame=base_frame, timeout=1.0)
         d_H = float('inf')
         if H_base_ee is not None:
             d_H = np.linalg.norm(H_base_ee - last_H)
