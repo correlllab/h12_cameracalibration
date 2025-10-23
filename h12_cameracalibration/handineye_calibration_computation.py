@@ -239,7 +239,7 @@ def main():
     file_location = os.path.dirname(os.path.abspath(__file__))
     print(f"File location: {file_location}")
     UR = False
-    experiment_str = "handineye_calibration"
+    experiment_str = "strapped_handineye_calibration"
     if UR:
         experiment_str += "_ur"
     else:

@@ -246,7 +246,7 @@ def collect_handineye_calibration_data(save_dir):
 def main():
     data_dir = os.path.join(file_dir, 'data')
     os.makedirs(data_dir, exist_ok=True)
-    save_dir = os.path.join(data_dir, 'handineye_calibration')
+    save_dir = os.path.join(data_dir, 'strapped_handineye_calibration')
 
 
     
