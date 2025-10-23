@@ -47,7 +47,7 @@ def get_error(
     total_sq_error_px = 0.0
     total_corners = 0
     H_camera_gripper = inv_SE3(H_gripper_camera)
-    for H_b_g, corners in zip(H_base_gripper, corners_list):
+    for i, (H_b_g, corners) in enumerate(zip(H_base_gripper, corners_list)):
         H_g_b = inv_SE3(H_b_g)
         pred_H_c_t = H_camera_gripper @ H_g_b @ H_base_target_ref
         
