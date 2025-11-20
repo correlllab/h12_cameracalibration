@@ -2,7 +2,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from custom_ros_messages.action import DualArm
-from scipy.spatial.transform import Rotation as R
+# from scipy.spatial.transform import Rotation as R
 import time
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 import numpy as np

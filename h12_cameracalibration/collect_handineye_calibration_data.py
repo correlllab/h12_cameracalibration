@@ -3,7 +3,7 @@ import shutil
 import numpy as np
 import os
 import sys
-import cv2
+# import cv2
 file_dir = os.path.dirname(os.path.realpath(__file__))
 
 if file_dir not in sys.path:
@@ -216,8 +216,7 @@ def collect_handineye_calibration_data(save_dir):
     target = np.array(target_location, dtype=float)
 
     
-    
-   
+    input("waiting to move")
     x_set = [-0.3, 0, 0.3]
     z_set = [0, 0.3, 0.6]
     y_set = [0.2, 0.4, 0.6]
@@ -246,7 +245,7 @@ def collect_handineye_calibration_data(save_dir):
 def main():
     data_dir = os.path.join(file_dir, 'data')
     os.makedirs(data_dir, exist_ok=True)
-    save_dir = os.path.join(data_dir, 'strapped_handineye_calibration')
+    save_dir = os.path.join(data_dir, 'blahblah_strapped_handineye_calibration')
 
 
     

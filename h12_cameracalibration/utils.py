@@ -2,8 +2,8 @@ import numpy as np
 import os
 import glob
 import random
-import cv2
-import matplotlib.pyplot as plt
+# import cv2
+# import matplotlib.pyplot as plt
 import time
 import threading
 # ----------------------- SAVING utilities -----------------------
