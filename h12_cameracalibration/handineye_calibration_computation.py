@@ -8,6 +8,40 @@ import matplotlib.pyplot as plt
 import os
 from utils import stack_H, visualize_r_t, load_intrinsics_npz, load_data, inv_SE3, predict_corners, visualize_corners
 import scipy.optimize as opt
+
+def get_avg_transform(H_list: List[np.ndarray]) -> np.ndarray:
+    """
+    Compute average SE3 transform from a list of SE3 transforms.
+
+    Inputs:
+        H_list : list of SE3 transforms (each 4x4)
+
+    Returns:
+        H_avg : average SE3 transform (4x4)
+    """
+    # Compute the average rotation
+    R_list = [H[:3, :3] for H in H_list]
+    R_avg = SciRot.from_matrix(np.mean([SciRot.from_matrix(R).as_matrix() for R in R_list], axis=0)).as_matrix()
+
+    # Compute the average translation
+    t_list = [H[:3, 3] for H in H_list]
+    t_avg = np.mean(t_list, axis=0).reshape(3, 1)
+
+    # Stack the average rotation and translation into a single SE3 transform
+    H_avg = stack_H(R_avg, t_avg)
+    return H_avg
+
+def get_base_target_ref_transform(H_base_gripper_list, H_camera_target_list, H_gripper_camera, display=False):
+    # --- Target->Base per frame ---
+    H_base_target_list = [H_base_gripper @ H_gripper_camera @ H_cam_target for H_base_gripper, H_cam_target in zip(H_base_gripper_list, H_camera_target_list)]
+    if display:
+        R_list = [T[:3, :3] for T in H_base_target_list]
+        t_stack = np.stack([T[:3, 3] for T in H_base_target_list], axis=0)
+        visualize_r_t(R_list, t_stack, axis_len=0.005, title="Base->Target Poses")
+    H_base_target_ref = get_avg_transform(H_base_target_list)
+    return H_base_target_ref
+
+
 def get_error(
     R_base_gripper: List[np.ndarray],
     t_base_gripper: List[np.ndarray],
@@ -38,11 +72,8 @@ def get_error(
     H_camera_target = [stack_H(R, t) for R, t in zip(R_camera_target, t_camera_target)]
     H_gripper_camera = stack_H(R_gripper_camera, t_gripper_camera)
 
-    # --- Target->Base per frame ---
-    H_base_target_list = [H_b_g @ H_gripper_camera @ H_c_t for H_b_g, H_c_t in zip(H_base_gripper, H_camera_target)]
-    R_ref = SciRot.from_matrix(np.stack([H[:3,:3] for H in H_base_target_list])).mean().as_matrix()
-    t_ref = np.mean([H[:3,3] for H in H_base_target_list], axis=0).reshape(3,1)
-    H_base_target_ref = stack_H(R_ref, t_ref)
+    
+    H_base_target_ref = get_base_target_ref_transform(H_base_gripper, H_camera_target, H_gripper_camera, display=False)
 
     total_sq_error_px = 0.0
     total_corners = 0
@@ -239,7 +270,7 @@ def main():
     file_location = os.path.dirname(os.path.abspath(__file__))
     print(f"File location: {file_location}")
     UR = False
-    experiment_str = "strapped_handineye_calibration"
+    experiment_str = "handineye_calibration"
     if UR:
         experiment_str += "_ur"
     else:
